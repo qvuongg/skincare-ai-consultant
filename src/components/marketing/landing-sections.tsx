@@ -3,7 +3,7 @@ import { Activity, Camera, ShieldCheck, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { t } from "@/lib/translations";
 
-export function HeroSection() {
+export function HeroSection({ onStart }: { onStart?: () => void }) {
   return (
     <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-card to-background px-4 py-16 sm:px-6 sm:py-24">
       <div className="mx-auto max-w-3xl text-center">
@@ -23,12 +23,12 @@ export function HeroSection() {
           {t("hero.disclaimer")}
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <a
-            href="#scanner"
+          <button
+            onClick={onStart}
             className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             {t("hero.start_scan")}
-          </a>
+          </button>
           <a
             href="#how-it-works"
             className="text-sm font-medium text-primary underline-offset-4 hover:underline"

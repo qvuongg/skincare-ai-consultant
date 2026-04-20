@@ -12,6 +12,16 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("image");
+    const onboardingContextRaw = formData.get("onboardingContext");
+    let onboardingContext = null;
+
+    if (onboardingContextRaw && typeof onboardingContextRaw === "string") {
+      try {
+        onboardingContext = JSON.parse(onboardingContextRaw);
+      } catch (e) {
+        console.error("Failed to parse onboardingContext:", e);
+      }
+    }
 
     if (!(file instanceof File)) {
       return Response.json(
@@ -35,7 +45,7 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const analysis = await analyzeSkinImage(buffer, file.type);
+    const analysis = await analyzeSkinImage(buffer, file.type, onboardingContext);
 
     const recommendedProducts = matchProducts(
       analysis.skin_type,

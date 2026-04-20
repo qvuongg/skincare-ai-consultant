@@ -33,7 +33,7 @@ type ApiOk = {
   scanId: string | null;
 };
 
-export function SkinScanner() {
+export function SkinScanner({ onboardingContext }: { onboardingContext?: any }) {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -142,6 +142,12 @@ export function SkinScanner() {
     try {
       const fd = new FormData();
       fd.append("image", file);
+      
+      // Gửi kèm onboardingContext nếu có
+      if (onboardingContext) {
+        fd.append("onboardingContext", JSON.stringify(onboardingContext));
+      }
+
       const res = await fetch("/api/analyze-skin", {
         method: "POST",
         body: fd,
