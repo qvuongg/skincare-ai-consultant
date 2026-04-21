@@ -5,3 +5,5 @@ export type ProductCategoryId =
   | "treatment"
   | "moisturizer"
   | "sunscreen";
+
+export type PriceRange = "budget" | "mid" | "premium";
