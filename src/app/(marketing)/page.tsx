@@ -41,8 +41,11 @@ export default function HomePage() {
     <main className="flex flex-1 flex-col">
       <HeroSection onStart={() => document.getElementById("onboarding")?.scrollIntoView({ behavior: "smooth" })} />
       
-      <section id="onboarding" className="py-20 bg-black">
-        <div className="container mx-auto px-4">
+      <section
+        id="onboarding"
+        className="border-b border-border bg-gradient-to-b from-background to-muted/40 px-4 py-16 sm:px-6 sm:py-20"
+      >
+        <div className="mx-auto max-w-3xl">
           <AnimatePresence mode="wait">
             {!showScanner ? (
               <motion.div
@@ -50,9 +53,13 @@ export default function HomePage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
               >
-                <div className="text-center mb-10">
-                  <h2 className="text-3xl font-bold text-[#D4AF37] mb-4">Làm quen một chút nhé!</h2>
-                  <p className="text-gray-400">Hãy cho Casa Mika biết thêm về bạn để có kết quả chính xác nhất.</p>
+                <div className="mb-10 text-center">
+                  <h2 className="text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                    Làm quen một chút nhé!
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground sm:text-base">
+                    Hãy cho Casa Mika biết thêm về bạn để có kết quả chính xác nhất.
+                  </p>
                 </div>
                 <OnboardingSlider onComplete={handleOnboardingComplete} />
               </motion.div>
@@ -60,14 +67,18 @@ export default function HomePage() {
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-center py-10"
+                className="py-10 text-center"
               >
-                <div className="inline-flex items-center justify-center p-4 rounded-full bg-[#D4AF37]/10 text-[#D4AF37] mb-6">
-                  <span className="text-xl font-bold italic">Cảm ơn {onboardingData?.user_name}! ✨</span>
+                <div className="mb-6 inline-flex items-center justify-center rounded-full border border-primary/20 bg-primary/10 px-5 py-3 text-primary">
+                  <span className="text-lg font-semibold">
+                    Cảm ơn {onboardingData?.user_name}! ✨
+                  </span>
                 </div>
-                <p className="text-gray-400 mb-8">Bây giờ, hãy chụp ảnh để bắt đầu phân tích da chuyên sâu.</p>
+                <p className="mb-8 text-sm text-muted-foreground sm:text-base">
+                  Bây giờ, hãy chụp ảnh để bắt đầu phân tích da chuyên sâu.
+                </p>
                 <div className="animate-bounce">
-                  <div className="w-1 h-12 bg-gradient-to-b from-[#D4AF37] to-transparent mx-auto rounded-full" />
+                  <div className="mx-auto h-12 w-1 rounded-full bg-gradient-to-b from-primary to-transparent" />
                 </div>
               </motion.div>
             )}

@@ -2,18 +2,16 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Snowflake, 
-  Sun, 
-  Droplets, 
-  Moon, 
-  CheckCircle2, 
-  ArrowRight, 
-  MapPin, 
+import {
+  Snowflake,
+  Sun,
+  Droplets,
+  Moon,
+  ArrowRight,
+  MapPin,
   Sparkles,
   ShieldCheck,
-  Coffee,
-  Zap
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -32,17 +30,28 @@ interface OnboardingData {
 }
 
 const TREATMENTS = [
-  "Retinol", "BHA", "AHA", "Vitamin C", "Niacinamide", "Hyaluronic Acid", "Benzoyl Peroxide", "None"
+  "Retinol",
+  "BHA",
+  "AHA",
+  "Vitamin C",
+  "Niacinamide",
+  "Hyaluronic Acid",
+  "Benzoyl Peroxide",
+  "None",
 ];
 
 const GOALS = [
   { id: "acne_treatment", label: "Trị mụn", icon: <Zap className="size-4" /> },
   { id: "brightening", label: "Sáng da", icon: <Sparkles className="size-4" /> },
   { id: "anti_aging", label: "Chống lão hóa", icon: <ShieldCheck className="size-4" /> },
-  { id: "hydration", label: "Cấp ẩm", icon: <Droplets className="size-4" /> }
+  { id: "hydration", label: "Cấp ẩm", icon: <Droplets className="size-4" /> },
 ];
 
-export function OnboardingSlider({ onComplete }: { onComplete: (data: OnboardingData) => void }) {
+export function OnboardingSlider({
+  onComplete,
+}: {
+  onComplete: (data: OnboardingData) => void;
+}) {
   const [step, setStep] = useState(1);
   const [feedback, setFeedback] = useState("");
   const [data, setData] = useState<Partial<OnboardingData>>({
@@ -53,24 +62,26 @@ export function OnboardingSlider({ onComplete }: { onComplete: (data: Onboarding
   const totalSteps = 6;
   const progress = (step / totalSteps) * 100;
 
-  // Step 1: Auto-Location
   useEffect(() => {
     if (step === 2 && !data.location) {
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            // Giả lập lấy tên thành phố từ lat/long
-            const location = "Đà Nẵng"; 
-            setData(prev => ({ 
-              ...prev, 
+          async () => {
+            const location = "Đà Nẵng";
+            setData((prev) => ({
+              ...prev,
               location,
-              weather_context: { uv_index: 8, humidity: "high" }
+              weather_context: { uv_index: 8, humidity: "high" },
             }));
-            setFeedback(`Tuyệt vời! Mình thấy bạn đang ở ${location}. Hãy cẩn thận với nắng miền Trung nhé! ☀️`);
+            setFeedback(
+              `Tuyệt vời! Mình thấy bạn đang ở ${location}. Hãy cẩn thận với nắng miền Trung nhé! ☀️`
+            );
           },
           () => {
-            setData(prev => ({ ...prev, location: "Việt Nam" }));
-            setFeedback("Không sao, mình sẽ tư vấn dựa trên khí hậu Việt Nam chung nhé! 🇻🇳");
+            setData((prev) => ({ ...prev, location: "Việt Nam" }));
+            setFeedback(
+              "Không sao, mình sẽ tư vấn dựa trên khí hậu Việt Nam chung nhé! 🇻🇳"
+            );
           }
         );
       }
@@ -90,7 +101,12 @@ export function OnboardingSlider({ onComplete }: { onComplete: (data: Onboarding
     }
   };
 
-  const handleChoice = (key: string, value: any, message: string, isFinalStep = false) => {
+  const handleChoice = (
+    key: string,
+    value: any,
+    message: string,
+    isFinalStep = false
+  ) => {
     const newData = { ...data, [key]: value };
     setData(newData);
     setFeedback(message);
@@ -107,26 +123,34 @@ export function OnboardingSlider({ onComplete }: { onComplete: (data: Onboarding
 
   const toggleTreatment = (item: string) => {
     const current = data.current_treatments || [];
-    const next = current.includes(item) 
-      ? current.filter(i => i !== item)
+    const next = current.includes(item)
+      ? current.filter((i) => i !== item)
       : [...current, item];
-    setData(prev => ({ ...prev, current_treatments: next }));
+    setData((prev) => ({ ...prev, current_treatments: next }));
   };
 
   const slideVariants = {
-    enter: { x: 100, opacity: 0 },
+    enter: { x: 40, opacity: 0 },
     center: { x: 0, opacity: 1 },
-    exit: { x: -100, opacity: 0 }
+    exit: { x: -40, opacity: 0 },
   };
 
-  return (
-    <div className="mx-auto max-w-lg w-full p-6 bg-black text-white rounded-2xl border border-[#D4AF37]/30 shadow-2xl overflow-hidden relative">
-      {/* Progress Bar */}
-      <div className="absolute top-0 left-0 w-full px-6 pt-4">
-        <Progress value={progress} className="h-1 bg-white/10" />
-      </div>
+  const tileClass =
+    "group flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-6 text-foreground shadow-sm ring-1 ring-foreground/5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
-      <div className="mt-8 min-h-[400px] flex flex-col justify-center">
+  return (
+    <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card p-6 text-foreground shadow-sm ring-1 ring-foreground/5 sm:p-8">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Bước {step} / {totalSteps}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {Math.round(progress)}%
+        </span>
+      </div>
+      <Progress value={progress} className="h-1.5" />
+
+      <div className="mt-8 flex min-h-[400px] flex-col justify-center">
         <AnimatePresence mode="wait">
           <motion.div
             key={step}
@@ -137,23 +161,39 @@ export function OnboardingSlider({ onComplete }: { onComplete: (data: Onboarding
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             className="space-y-6"
           >
-            {/* Step 1: Name */}
             {step === 1 && (
-              <div className="space-y-4">
-                <h2 className="text-2xl font-bold text-[#D4AF37]">Chào bạn! 👋</h2>
-                <p className="text-gray-400">Chúng mình xưng hô với nhau thế nào nhỉ?</p>
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Badge
+                    variant="secondary"
+                    className="border border-border bg-secondary/80"
+                  >
+                    Chào bạn 👋
+                  </Badge>
+                  <h2 className="text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                    Chúng mình xưng hô với nhau thế nào nhỉ?
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Hãy để Casa Mika biết tên bạn để buổi tư vấn thân thiện hơn.
+                  </p>
+                </div>
                 <input
                   autoFocus
-                  className="w-full bg-transparent border-b-2 border-[#D4AF37] text-2xl py-2 focus:outline-none placeholder:text-gray-700"
+                  className="w-full border-b-2 border-border bg-transparent py-2 text-2xl text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none"
                   placeholder="Tên của bạn..."
                   value={data.user_name}
-                  onChange={(e) => setData({ ...data, user_name: e.target.value })}
-                  onKeyDown={(e) => e.key === "Enter" && data.user_name && nextStep()}
+                  onChange={(e) =>
+                    setData({ ...data, user_name: e.target.value })
+                  }
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && data.user_name && nextStep()
+                  }
                 />
                 {data.user_name && (
-                  <Button 
+                  <Button
+                    size="lg"
                     onClick={nextStep}
-                    className="w-full bg-[#D4AF37] text-black hover:bg-[#B8962E] font-bold"
+                    className="w-full"
                   >
                     Tiếp tục <ArrowRight className="ml-2 size-4" />
                   </Button>
@@ -161,120 +201,268 @@ export function OnboardingSlider({ onComplete }: { onComplete: (data: Onboarding
               </div>
             )}
 
-            {/* Step 2: Location (Auto) */}
             {step === 2 && (
               <div className="space-y-6 text-center">
                 <div className="flex justify-center">
-                  <div className="p-4 rounded-full bg-[#D4AF37]/10 animate-pulse">
-                    <MapPin className="size-12 text-[#D4AF37]" />
+                  <div className="rounded-full bg-primary/10 p-4 ring-1 ring-primary/20">
+                    <MapPin className="size-10 text-primary" />
                   </div>
                 </div>
-                <h2 className="text-2xl font-bold">Đang định vị...</h2>
-                <p className="text-[#D4AF37] font-medium min-h-[3rem]">{feedback}</p>
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Đang định vị...
+                  </h2>
+                  <p className="min-h-[3rem] text-sm text-muted-foreground">
+                    {feedback ||
+                      "Chúng mình sẽ điều chỉnh tư vấn theo khí hậu nơi bạn sống."}
+                  </p>
+                </div>
                 {data.location && (
-                   <Button onClick={nextStep} className="bg-[#D4AF37] text-black hover:bg-[#B8962E] font-bold">
-                    Tiếp tục thôi!
+                  <Button size="lg" onClick={nextStep}>
+                    Tiếp tục <ArrowRight className="ml-2 size-4" />
                   </Button>
                 )}
               </div>
             )}
 
-            {/* Step 3: Environment */}
             {step === 3 && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-[#D4AF37]">Môi trường làm việc?</h2>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Môi trường làm việc?
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Thông tin này giúp dự đoán các yếu tố tác động tới làn da.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => handleChoice("environment", "office", "Máy lạnh làm khô da lắm đấy, nhớ cấp ẩm nhé! ❄️")}
-                    className="p-6 rounded-xl border border-white/10 bg-white/5 hover:border-[#D4AF37] transition-all flex flex-col items-center gap-3"
+                    type="button"
+                    onClick={() =>
+                      handleChoice(
+                        "environment",
+                        "office",
+                        "Máy lạnh làm khô da lắm đấy, nhớ cấp ẩm nhé! ❄️"
+                      )
+                    }
+                    className={tileClass}
                   >
-                    <Snowflake className="size-10 text-blue-400" />
-                    <span>Văn phòng</span>
+                    <span className="flex size-12 items-center justify-center rounded-lg bg-chart-2/10 text-chart-2">
+                      <Snowflake className="size-6" />
+                    </span>
+                    <span className="text-sm font-medium">Văn phòng</span>
                   </button>
                   <button
-                    onClick={() => handleChoice("environment", "outdoor", "Nắng gắt quá, đừng quên kem chống nắng nha! ☀️")}
-                    className="p-6 rounded-xl border border-white/10 bg-white/5 hover:border-[#D4AF37] transition-all flex flex-col items-center gap-3"
+                    type="button"
+                    onClick={() =>
+                      handleChoice(
+                        "environment",
+                        "outdoor",
+                        "Nắng gắt quá, đừng quên kem chống nắng nha! ☀️"
+                      )
+                    }
+                    className={tileClass}
                   >
-                    <Sun className="size-10 text-orange-400" />
-                    <span>Ngoài trời</span>
+                    <span className="flex size-12 items-center justify-center rounded-lg bg-chart-5/10 text-chart-5">
+                      <Sun className="size-6" />
+                    </span>
+                    <span className="text-sm font-medium">Ngoài trời</span>
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Step 4: Habits */}
             {step === 4 && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-[#D4AF37]">Thói quen sinh hoạt?</h2>
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl border border-white/10 bg-white/5">
-                    <p className="mb-3 flex items-center gap-2"><Droplets className="size-4 text-blue-400" /> Lượng nước uống?</p>
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Thói quen sinh hoạt?
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Nền tảng sức khỏe bên trong quyết định rất lớn đến làn da.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Droplets className="size-4 text-chart-2" /> Lượng nước uống?
+                    </p>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setData({...data, habits: {...(data.habits || {sleep: ""}), water: "low"}})}>Ít</Button>
-                      <Button variant="outline" size="sm" onClick={() => setData({...data, habits: {...(data.habits || {sleep: ""}), water: "normal"}})}>Đủ</Button>
+                      <Button
+                        variant={
+                          data.habits?.water === "low" ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setData({
+                            ...data,
+                            habits: {
+                              ...(data.habits || { sleep: "" }),
+                              water: "low",
+                            },
+                          })
+                        }
+                      >
+                        Ít
+                      </Button>
+                      <Button
+                        variant={
+                          data.habits?.water === "normal"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setData({
+                            ...data,
+                            habits: {
+                              ...(data.habits || { sleep: "" }),
+                              water: "normal",
+                            },
+                          })
+                        }
+                      >
+                        Đủ
+                      </Button>
                     </div>
                   </div>
-                  <div className="p-4 rounded-xl border border-white/10 bg-white/5">
-                    <p className="mb-3 flex items-center gap-2"><Moon className="size-4 text-purple-400" /> Giấc ngủ?</p>
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Moon className="size-4 text-chart-3" /> Giấc ngủ?
+                    </p>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setData({...data, habits: {...(data.habits || {water: ""}), sleep: "late"}})}>Cú đêm</Button>
-                      <Button variant="outline" size="sm" onClick={() => setData({...data, habits: {...(data.habits || {water: ""}), sleep: "enough"}})}>Ngủ đủ</Button>
+                      <Button
+                        variant={
+                          data.habits?.sleep === "late" ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setData({
+                            ...data,
+                            habits: {
+                              ...(data.habits || { water: "" }),
+                              sleep: "late",
+                            },
+                          })
+                        }
+                      >
+                        Cú đêm
+                      </Button>
+                      <Button
+                        variant={
+                          data.habits?.sleep === "enough"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setData({
+                            ...data,
+                            habits: {
+                              ...(data.habits || { water: "" }),
+                              sleep: "enough",
+                            },
+                          })
+                        }
+                      >
+                        Ngủ đủ
+                      </Button>
                     </div>
                   </div>
-                  <Button 
+                  <Button
+                    size="lg"
                     disabled={!data.habits?.water || !data.habits?.sleep}
-                    onClick={() => handleChoice("habits", data.habits, "Giấc ngủ là liều thuốc tiên cho làn da đấy! ✨")}
-                    className="w-full bg-[#D4AF37] text-black hover:bg-[#B8962E] font-bold"
+                    onClick={() =>
+                      handleChoice(
+                        "habits",
+                        data.habits,
+                        "Giấc ngủ là liều thuốc tiên cho làn da đấy! ✨"
+                      )
+                    }
+                    className="w-full"
                   >
-                    Tiếp tục
+                    Tiếp tục <ArrowRight className="ml-2 size-4" />
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Step 5: Treatments */}
             {step === 5 && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-[#D4AF37]">Bạn đang dùng gì?</h2>
-                <div className="flex flex-wrap gap-2">
-                  {TREATMENTS.map(item => (
-                    <Badge
-                      key={item}
-                      variant={data.current_treatments?.includes(item) ? "default" : "outline"}
-                      className={cn(
-                        "cursor-pointer py-2 px-3 text-sm",
-                        data.current_treatments?.includes(item) && "bg-[#D4AF37] text-black"
-                      )}
-                      onClick={() => toggleTreatment(item)}
-                    >
-                      {item}
-                    </Badge>
-                  ))}
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Bạn đang dùng gì?
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Chọn tất cả hoạt chất bạn đang sử dụng trong chu trình hiện tại.
+                  </p>
                 </div>
-                <Button 
-                  onClick={() => handleChoice("current_treatments", data.current_treatments, "Wow, bạn cũng 'sành' skincare đấy chứ! 🧪")}
-                  className="w-full bg-[#D4AF37] text-black hover:bg-[#B8962E] font-bold"
+                <div className="flex flex-wrap gap-2">
+                  {TREATMENTS.map((item) => {
+                    const selected = data.current_treatments?.includes(item);
+                    return (
+                      <Badge
+                        key={item}
+                        variant={selected ? "default" : "outline"}
+                        className={cn(
+                          "cursor-pointer px-3 py-2 text-sm transition-colors",
+                          selected
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-primary/5"
+                        )}
+                        onClick={() => toggleTreatment(item)}
+                      >
+                        {item}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <Button
+                  size="lg"
+                  onClick={() =>
+                    handleChoice(
+                      "current_treatments",
+                      data.current_treatments,
+                      "Wow, bạn cũng 'sành' skincare đấy chứ! 🧪"
+                    )
+                  }
+                  className="w-full"
                 >
-                  Xong rồi
+                  Xong rồi <ArrowRight className="ml-2 size-4" />
                 </Button>
               </div>
             )}
 
-            {/* Step 6: Goal */}
             {step === 6 && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-[#D4AF37]">Mục tiêu lớn nhất?</h2>
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Mục tiêu lớn nhất?
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Casa Mika sẽ ưu tiên đề xuất xoay quanh mục tiêu này của bạn.
+                  </p>
+                </div>
                 <div className="grid gap-3">
-                  {GOALS.map(goal => (
+                  {GOALS.map((goal) => (
                     <button
                       key={goal.id}
-                      onClick={() => handleChoice("primary_goal", goal.id, "Mục tiêu đã rõ! Hãy để mình giúp bạn tỏa sáng. 🌟", true)}
-                      className="p-4 rounded-xl border border-white/10 bg-white/5 hover:border-[#D4AF37] transition-all flex items-center gap-4 text-left"
+                      type="button"
+                      onClick={() =>
+                        handleChoice(
+                          "primary_goal",
+                          goal.id,
+                          "Mục tiêu đã rõ! Hãy để mình giúp bạn tỏa sáng. 🌟",
+                          true
+                        )
+                      }
+                      className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left text-foreground shadow-sm ring-1 ring-foreground/5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5"
                     >
-                      <div className="p-2 rounded-lg bg-[#D4AF37]/10 text-[#D4AF37]">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         {goal.icon}
-                      </div>
-                      <span className="font-medium">{goal.label}</span>
+                      </span>
+                      <span className="text-sm font-medium">{goal.label}</span>
+                      <ArrowRight className="ml-auto size-4 text-muted-foreground" />
                     </button>
                   ))}
                 </div>
@@ -284,14 +472,13 @@ export function OnboardingSlider({ onComplete }: { onComplete: (data: Onboarding
         </AnimatePresence>
       </div>
 
-      {/* Footer Feedback */}
       <AnimatePresence>
-        {feedback && (
+        {feedback && step !== 2 && (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-4 p-3 rounded-lg bg-[#D4AF37]/10 text-[#D4AF37] text-sm text-center font-medium"
+            className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-3 text-center text-sm font-medium text-primary"
           >
             {feedback}
           </motion.div>
