@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import Image from "next/image";
 import { Star, ExternalLink, Tag, Beaker } from "lucide-react";
 
@@ -15,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AFFILIATE_NOTICE } from "@/lib/constants";
 import { t } from "@/lib/translations";
-import { HeroProduct, MatchedProductResult, buildAffiliateUrl } from "@/lib/products/matcher";
+import { HeroProduct, MatchedProductResult } from "@/lib/products/matcher";
 import type { ProductCategoryId } from "@/types/skin-analysis";
 
 type Props = {
@@ -31,26 +30,9 @@ export function AffiliateProductGrid({ recommendedProducts, scanId }: Props) {
     { id: "sunscreen", label: "Kem chống nắng" },
   ];
 
-  const trackClick = async (product: HeroProduct, category: string) => {
-    try {
-      await fetch("/api/track-affiliate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event_type: "click",
-          product_id: product.id,
-          category,
-          ...(scanId ? { scan_id: scanId } : {}),
-        }),
-      });
-    } catch {
-      /* ignore */
-    }
-    window.open(
-      buildAffiliateUrl(product.affiliatePath),
-      "_blank",
-      "noopener,noreferrer"
-    );
+  const trackClick = (product: HeroProduct) => {
+    const url = scanId ? `/go/${product.id}?scan_id=${encodeURIComponent(scanId)}` : `/go/${product.id}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -108,7 +90,7 @@ export function AffiliateProductGrid({ recommendedProducts, scanId }: Props) {
                           </div>
                           <CardTitle className="text-base line-clamp-1">{product.name}</CardTitle>
                           <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 italic">
-                            "{product.tagline}"
+                            &quot;{product.tagline}&quot;
                           </p>
                         </>
                       ) : (
@@ -146,7 +128,7 @@ export function AffiliateProductGrid({ recommendedProducts, scanId }: Props) {
                           <Button 
                             className="w-full text-xs" 
                             size="sm"
-                            onClick={() => trackClick(product, cat.id)}
+                            onClick={() => trackClick(product)}
                           >
                             {t("scanner.check_price")}
                             <ExternalLink className="ml-2 size-3" />

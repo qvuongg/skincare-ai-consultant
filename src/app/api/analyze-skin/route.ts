@@ -3,6 +3,7 @@ import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import { recordSkinScan } from "@/lib/analytics/events";
 import { t } from "@/lib/translations";
 import { matchProducts } from "@/lib/products/matcher";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -46,8 +47,18 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const analysis = await analyzeSkinImage(buffer, file.type, onboardingContext);
+    const admin = createAdminClient();
+    const { data: products, error: productsError } = await admin
+      .from("products")
+      .select("*")
+      .order("brand", { ascending: true });
+
+    if (productsError) {
+      throw productsError;
+    }
 
     const recommendedProducts = matchProducts(
+      products ?? [],
       analysis.skin_type,
       analysis.ingredients
     );

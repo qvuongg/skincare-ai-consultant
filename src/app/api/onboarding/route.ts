@@ -6,23 +6,68 @@ export async function POST(request: Request) {
     const data = await request.json();
     const supabase = createAdminClient();
 
-    // Lưu vào bảng leads (Bypass RLS bằng Admin Client)
-    const { data: lead, error } = await supabase
+    const name =
+      typeof data.user_name === "string" && data.user_name.trim()
+        ? data.user_name.trim()
+        : typeof data.name === "string" && data.name.trim()
+          ? data.name.trim()
+          : "Khách ẩn danh";
+
+    const contactInfo =
+      typeof data.contact_info === "string" && data.contact_info.trim()
+        ? data.contact_info.trim()
+        : "Chưa cung cấp";
+
+    const skinTypeDetected =
+      typeof data.skin_type_detected === "string" && data.skin_type_detected.trim()
+        ? data.skin_type_detected.trim()
+        : "Chưa phân loại";
+
+    const primaryGoal =
+      typeof data.primary_goal === "string" && data.primary_goal.trim()
+        ? data.primary_goal.trim()
+        : "Chưa cung cấp";
+
+    let { data: lead, error } = await supabase
       .from("leads")
       .insert([
         {
-          user_name: data.user_name,
-          location: data.location,
-          weather_context: data.weather_context,
-          environment: data.environment,
-          habits: data.habits,
-          current_treatments: data.current_treatments,
-          primary_goal: data.primary_goal,
+          name,
+          contact_info: contactInfo,
+          skin_type_detected: skinTypeDetected,
+          primary_goal: primaryGoal,
           raw_data: data,
         },
       ])
       .select()
       .single();
+
+    const shouldFallbackToLegacySchema =
+      error?.code === "PGRST204" &&
+      typeof error.message === "string" &&
+      (error.message.includes("contact_info") || error.message.includes("skin_type_detected"));
+
+    if (shouldFallbackToLegacySchema) {
+      const legacyInsert = await supabase
+        .from("leads")
+        .insert([
+          {
+            user_name: name,
+            location: data.location ?? null,
+            weather_context: data.weather_context ?? null,
+            environment: data.environment ?? null,
+            habits: data.habits ?? null,
+            current_treatments: data.current_treatments ?? null,
+            primary_goal: primaryGoal,
+            raw_data: data,
+          },
+        ])
+        .select()
+        .single();
+
+      lead = legacyInsert.data;
+      error = legacyInsert.error;
+    }
 
     if (error) {
       console.error("Supabase insert error:", error);
