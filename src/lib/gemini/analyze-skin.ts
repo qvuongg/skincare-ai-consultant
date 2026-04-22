@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, type GenerativeModel } from "@google/generative-ai";
 import { z } from "zod";
 
 export const skinAnalysisSchema = z.object({
@@ -7,29 +7,47 @@ export const skinAnalysisSchema = z.object({
   morning_routine: z.array(z.string()),
   evening_routine: z.array(z.string()),
   ingredients: z.array(z.string()),
+  lifestyle_insights: z.array(z.string()).optional().default([]),
+  vibe_note: z.string().optional().default(""),
 });
 
 export type SkinAnalysis = z.infer<typeof skinAnalysisSchema>;
 
-const SYSTEM_PROMPT = `Bạn là một chuyên gia AI về Da liễu chuyên nghiệp. Hãy phân tích hình ảnh da mặt của người dùng.
+const SYSTEM_PROMPT = `Bạn là "skin bestie" AI cho GenZ Việt — hiểu biết như chuyên gia da liễu nhưng nói chuyện chill, gần gũi, không giáo điều.
 
-Xác định loại da (Da dầu, Da khô, Da hỗn hợp).
+Phong cách:
+- Ngôn ngữ GenZ Việt Nam tự nhiên, thân thiện (vd: "da bạn đang hơi tụt mood", "mình gợi ý bạn thử..."), không lạm dụng tiếng lóng khó hiểu.
+- Luôn KẾT NỐI thói quen sống (thức khuya, ít uống nước, môi trường máy lạnh, stress, đồ ăn cay/ngọt...) với những gì quan sát được trên da. Đây là điểm khác biệt chính của bạn.
+- Cá nhân hóa theo onboarding context — không nói chung chung.
+- Không phán xét, không dọa dẫm. Tôn trọng ngân sách và thời gian của người trẻ.
 
-Phát hiện các vấn đề về da (Các loại mụn: mụn viêm, mụn ẩn; Đỏ da; Đốm thâm).
+Nhiệm vụ:
+1. Xác định skin_type (Da dầu / Da khô / Da hỗn hợp / Da thường / Da nhạy cảm).
+2. Liệt kê concerns cụ thể (mụn viêm, mụn ẩn, thâm mụn, lỗ chân lông to, xỉn màu, đỏ da, v.v.).
+3. Viết 2-4 lifestyle_insights — mỗi cái nối MỘT thói quen từ context với MỘT dấu hiệu trên da (vd: "Thức khuya + uống ít nước đang làm vùng chữ T bóng dầu và da xỉn hơn").
+4. Đề xuất morning_routine và evening_routine (3-5 bước mỗi routine, ngắn gọn, actionable).
+5. Liệt kê ingredients chủ động phù hợp (vd: Niacinamide, Salicylic Acid, Hyaluronic Acid, Centella Asiatica).
+6. Viết vibe_note — 1-2 câu động viên khép lại, tone tích cực.
 
-Cung cấp quy trình chăm sóc da buổi sáng và buổi tối.
-
-Gợi ý các hoạt chất (ví dụ: Salicylic Acid, Niacinamide).
-
-Phản hồi hoàn toàn bằng tiếng Việt.
-
-Kết quả trả về phải tuân thủ nghiêm ngặt định dạng JSON với các trường: skin_type, concerns[], morning_routine[], evening_routine[], ingredients[].`;
+OUTPUT: CHỈ trả về một JSON hợp lệ, KHÔNG markdown, KHÔNG code fence, KHÔNG text thừa. Schema bắt buộc: skin_type, concerns[], morning_routine[], evening_routine[], ingredients[], lifestyle_insights[], vibe_note.`;
 
 /** Override with GOOGLE_GENERATIVE_AI_MODEL (e.g. gemini-1.5-flash, gemini-2.0-flash). */
 export function getGeminiModelId(): string {
   return (
-    process.env.GOOGLE_GENERATIVE_AI_MODEL?.trim() || "gemini-2.5-flash"
+    process.env.GOOGLE_GENERATIVE_AI_MODEL?.trim() || "gemini-1.5-flash"
   );
+}
+
+function getApiKey(): string {
+  const key =
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      "Missing GEMINI_API_KEY (or GOOGLE_GENERATIVE_AI_API_KEY) env var"
+    );
+  }
+  return key;
 }
 
 function stripJsonFence(text: string): string {
@@ -45,20 +63,57 @@ function parseAnalysisJson(raw: string): SkinAnalysis {
   return skinAnalysisSchema.parse(parsed);
 }
 
+function isRetryable503(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  return (
+    msg.includes("503") ||
+    lower.includes("service unavailable") ||
+    lower.includes("overloaded") ||
+    lower.includes("model is overloaded")
+  );
+}
+
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 800;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function generateWithRetry(
+  model: GenerativeModel,
+  parts: Parameters<GenerativeModel["generateContent"]>[0]
+) {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await model.generateContent(parts);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_RETRIES && isRetryable503(err)) {
+        await sleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 export async function analyzeSkinImage(
   buffer: Buffer,
   mimeType: string,
   onboardingContext?: any
 ): Promise<SkinAnalysis> {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing GOOGLE_GENERATIVE_AI_API_KEY");
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
+  const genAI = new GoogleGenerativeAI(getApiKey());
   const model = genAI.getGenerativeModel({
     model: getGeminiModelId(),
     systemInstruction: SYSTEM_PROMPT,
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.7,
+    },
   });
 
   const base64 = buffer.toString("base64");
@@ -67,16 +122,18 @@ export async function analyzeSkinImage(
     "Hãy phân tích hình ảnh da mặt này và chỉ trả về JSON hợp lệ khớp với schema yêu cầu. Không sử dụng markdown, không giải thích ngoài JSON.";
 
   if (onboardingContext) {
-    prompt += `\n\nThông tin bổ sung về người dùng để bạn tham khảo cho việc phân tích và gợi ý quy trình:
-    - Vị trí: ${onboardingContext.location}
-    - Môi trường: ${onboardingContext.environment === "office" ? "Văn phòng máy lạnh" : "Ngoài trời"}
-    - Thói quen: Uống nước ${onboardingContext.habits?.water === "low" ? "ít" : "đủ"}, Giấc ngủ ${onboardingContext.habits?.sleep === "late" ? "thức khuya" : "đủ giấc"}
+    const env = onboardingContext.environment;
+    const water = onboardingContext.habits?.water;
+    const sleepHabit = onboardingContext.habits?.sleep;
+    prompt += `\n\nContext người dùng (BẮT BUỘC lồng ghép vào lifestyle_insights và gợi ý):
+    - Vị trí: ${onboardingContext.location ?? "không rõ"}
+    - Môi trường: ${env === "office" ? "Văn phòng máy lạnh" : env === "outdoor" ? "Ngoài trời" : env ?? "không rõ"}
+    - Thói quen: Uống nước ${water === "low" ? "ít" : water === "high" ? "nhiều" : "đủ"}, Giấc ngủ ${sleepHabit === "late" ? "thức khuya" : sleepHabit === "early" ? "sớm" : "đủ giấc"}
     - Các hoạt chất đang dùng: ${onboardingContext.current_treatments?.join(", ") || "Không có"}
-    - Mục tiêu chính: ${onboardingContext.primary_goal}
-    Hãy cân nhắc các yếu tố môi trường và thói quen này khi gợi ý quy trình và hoạt chất.`;
+    - Mục tiêu chính: ${onboardingContext.primary_goal ?? "chưa xác định"}`;
   }
 
-  const result = await model.generateContent([
+  const parts = [
     prompt,
     {
       inlineData: {
@@ -84,8 +141,9 @@ export async function analyzeSkinImage(
         data: base64,
       },
     },
-  ]);
+  ];
 
+  const result = await generateWithRetry(model, parts);
   const text = result.response.text();
   if (!text) {
     throw new Error("Empty response from model");
@@ -94,8 +152,8 @@ export async function analyzeSkinImage(
   try {
     return parseAnalysisJson(text);
   } catch {
-    const retry = await model.generateContent([
-      `${prompt}\n\nCâu trả lời trước của bạn không phải là JSON hợp lệ. Hãy phản hồi lại một lần nữa CHỈ với một đối tượng JSON duy nhất, không sử dụng khối mã (code fences).`,
+    const retry = await generateWithRetry(model, [
+      `${prompt}\n\nCâu trả lời trước không phải JSON hợp lệ. Hãy phản hồi lại CHỈ với một đối tượng JSON duy nhất, không code fence.`,
       {
         inlineData: {
           mimeType,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Snowflake,
@@ -20,8 +20,8 @@ import { cn } from "@/lib/utils";
 
 interface OnboardingData {
   user_name: string;
-  location: string;
-  weather_context: { uv_index: number; humidity: string };
+  location: string | null;
+  weather_context: { uv_index: number; humidity: string } | null;
   environment: string;
   habits: { water: string; sleep: string };
   current_treatments: string[];
@@ -47,6 +47,33 @@ const GOALS = [
   { id: "hydration", label: "Cấp ẩm", icon: <Droplets className="size-4" /> },
 ];
 
+const GREETING_NO_LOCATION = "Chào bạn! Cùng kiểm tra sức khoẻ làn da nhé!";
+const SILENT_SKIP_DELAY_MS = 500;
+const GEO_TIMEOUT_MS = 8000;
+
+// Calls our internal /api/weather proxy (keeps WEATHER_API_KEY server-side).
+// Returns city + weather in one hop; any failure throws and the caller
+// silent-skips to the next onboarding step.
+async function fetchWeather(
+  lat: number,
+  lon: number,
+  signal: AbortSignal
+): Promise<{ city: string; uv_index: number; humidity: string }> {
+  const res = await fetch(`/api/weather?lat=${lat}&lon=${lon}`, { signal });
+  if (!res.ok) throw new Error(`weather ${res.status}`);
+  const { uv, humidity, city } = (await res.json()) as {
+    uv: number;
+    humidity: number;
+    city: string;
+  };
+  if (typeof uv !== "number" || typeof humidity !== "number" || !city) {
+    throw new Error("weather response missing fields");
+  }
+  const humidityLabel =
+    humidity > 70 ? "high" : humidity > 40 ? "medium" : "low";
+  return { city, uv_index: Math.round(uv), humidity: humidityLabel };
+}
+
 export function OnboardingSlider({
   onComplete,
 }: {
@@ -62,30 +89,97 @@ export function OnboardingSlider({
   const totalSteps = 6;
   const progress = (step / totalSteps) * 100;
 
+  // Guards against re-fetching when we revisit step 2 (e.g. future back-nav)
+  // or when strict-mode double-invokes the effect in dev.
+  const locationResolvedRef = useRef(false);
+
   useEffect(() => {
-    if (step === 2 && !data.location) {
-      if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          async () => {
-            const location = "Đà Nẵng";
-            setData((prev) => ({
-              ...prev,
-              location,
-              weather_context: { uv_index: 8, humidity: "high" },
-            }));
-            setFeedback(
-              `Tuyệt vời! Mình thấy bạn đang ở ${location}. Hãy cẩn thận với nắng miền Trung nhé! ☀️`
-            );
-          },
-          () => {
-            setData((prev) => ({ ...prev, location: "Việt Nam" }));
-            setFeedback(
-              "Không sao, mình sẽ tư vấn dựa trên khí hậu Việt Nam chung nhé! 🇻🇳"
-            );
-          }
-        );
-      }
+    if (step !== 2) return;
+    if (locationResolvedRef.current) return;
+
+    const controller = new AbortController();
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    let cancelled = false;
+
+    const schedule = (fn: () => void, ms: number) => {
+      const id = setTimeout(() => {
+        timers.delete(id);
+        if (!cancelled) fn();
+      }, ms);
+      timers.add(id);
+    };
+
+    // Silent-skip: show generic greeting briefly, then null out location +
+    // weather_context and auto-advance. User never sees an error or manual
+    // input field.
+    const silentSkip = () => {
+      if (cancelled) return;
+      locationResolvedRef.current = true;
+      setFeedback(GREETING_NO_LOCATION);
+      schedule(() => {
+        setData((prev) => ({
+          ...prev,
+          location: null,
+          weather_context: null,
+        }));
+        setStep((s) => (s === 2 ? 3 : s));
+        setFeedback("");
+      }, SILENT_SKIP_DELAY_MS);
+    };
+
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      silentSkip();
+      return () => {
+        cancelled = true;
+        controller.abort();
+        timers.forEach(clearTimeout);
+        timers.clear();
+      };
     }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        if (cancelled) return;
+        try {
+          const { latitude, longitude } = pos.coords;
+          const { city, uv_index, humidity } = await fetchWeather(
+            latitude,
+            longitude,
+            controller.signal
+          );
+          if (cancelled) return;
+          locationResolvedRef.current = true;
+          setData((prev) => ({
+            ...prev,
+            location: city,
+            weather_context: { uv_index, humidity },
+          }));
+          setFeedback(
+            `Ồ, bạn ở ${city} à? UV hôm nay là ${uv_index}, chú ý nhé!`
+          );
+        } catch {
+          // Weather/reverse-geocode failure → treat like any other unknown
+          // location: silent-skip. Better than faking a default city.
+          silentSkip();
+        }
+      },
+      () => {
+        // Permission denied / timeout / position unavailable — all silent-skip.
+        silentSkip();
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: GEO_TIMEOUT_MS,
+        maximumAge: 60_000,
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
   }, [step]);
 
   const nextStep = () => {

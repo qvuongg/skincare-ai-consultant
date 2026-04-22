@@ -168,7 +168,7 @@ export const translations = {
     api: {
       no_image: "Không có tệp hình ảnh. Vui lòng sử dụng trường 'image'.",
       invalid_type: "Loại tệp không hợp lệ. Vui lòng tải lên một hình ảnh.",
-      file_too_large: "Tệp quá lớn. Kích thước tối đa là 8MB.",
+      file_too_large: "Ảnh quá lớn. Kích thước tối đa là 4MB — hãy nén hoặc chọn ảnh khác.",
       network_error: "Không thể kết nối với Google AI. Kiểm tra internet, VPN/tường lửa hoặc thử lại. Nếu vẫn tiếp tục, hãy đặt GOOGLE_GENERATIVE_AI_MODEL thành model mà key của bạn hỗ trợ.",
       generic_error: "Chúng tôi không thể phân tích hình ảnh này. Vui lòng thử ảnh khác hoặc thử lại sau.",
     },
