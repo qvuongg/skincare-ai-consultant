@@ -46,7 +46,7 @@ export function getGeminiModelIds(): string[] {
       .filter(Boolean);
     if (parsed.length > 0) return parsed;
   }
-  return ["gemini-3-flash", "gemini-2.5-flash"];
+  return ["gemini-2.5-flash", "gemini-2.0-flash"];
 }
 
 function getApiKey(): string {
@@ -123,7 +123,7 @@ type OnboardingContext = {
 export async function analyzeSkinImage(
   buffer: Buffer,
   mimeType: string,
-  onboardingContext?: unknown
+  onboardingContext?: OnboardingContext | null
 ): Promise<SkinAnalysis> {
   const genAI = new GoogleGenerativeAI(getApiKey());
   const base64 = buffer.toString("base64");
@@ -131,17 +131,16 @@ export async function analyzeSkinImage(
   let prompt =
     "Hãy phân tích hình ảnh da mặt này và chỉ trả về JSON hợp lệ khớp với schema yêu cầu. Không sử dụng markdown, không giải thích ngoài JSON.";
 
-  if (onboardingContext && typeof onboardingContext === "object") {
-    const ctx = onboardingContext as OnboardingContext;
-    const env = ctx.environment;
-    const water = ctx.habits?.water;
-    const sleepHabit = ctx.habits?.sleep;
+  if (onboardingContext) {
+    const env = onboardingContext.environment;
+    const water = onboardingContext.habits?.water;
+    const sleepHabit = onboardingContext.habits?.sleep;
     prompt += `\n\nContext người dùng (BẮT BUỘC lồng ghép vào lifestyle_insights và gợi ý):
-    - Vị trí: ${ctx.location ?? "không rõ"}
+    - Vị trí: ${onboardingContext.location ?? "không rõ"}
     - Môi trường: ${env === "office" ? "Văn phòng máy lạnh" : env === "outdoor" ? "Ngoài trời" : env ?? "không rõ"}
     - Thói quen: Uống nước ${water === "low" ? "ít" : water === "high" ? "nhiều" : "đủ"}, Giấc ngủ ${sleepHabit === "late" ? "thức khuya" : sleepHabit === "early" ? "sớm" : "đủ giấc"}
-    - Các hoạt chất đang dùng: ${ctx.current_treatments?.join(", ") || "Không có"}
-    - Mục tiêu chính: ${ctx.primary_goal ?? "chưa xác định"}`;
+    - Các hoạt chất đang dùng: ${onboardingContext.current_treatments?.join(", ") || "Không có"}
+    - Mục tiêu chính: ${onboardingContext.primary_goal ?? "chưa xác định"}`;
   }
 
   const parts = [
