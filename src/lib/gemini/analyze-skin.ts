@@ -46,7 +46,7 @@ export function getGeminiModelIds(): string[] {
       .filter(Boolean);
     if (parsed.length > 0) return parsed;
   }
-  return ["gemini-2.5-flash", "gemini-2.0-flash"];
+  return ["gemini-3-flash", "gemini-2.5-flash"];
 }
 
 function getApiKey(): string {
