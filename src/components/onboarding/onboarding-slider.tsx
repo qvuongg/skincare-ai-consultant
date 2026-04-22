@@ -48,7 +48,6 @@ const GOALS = [
 ];
 
 const GREETING_NO_LOCATION = "Chào bạn! Cùng kiểm tra sức khoẻ làn da nhé!";
-const SILENT_SKIP_DELAY_MS = 500;
 const GEO_TIMEOUT_MS = 8000;
 
 // Calls our internal /api/weather proxy (keeps WEATHER_API_KEY server-side).
@@ -98,33 +97,19 @@ export function OnboardingSlider({
     if (locationResolvedRef.current) return;
 
     const controller = new AbortController();
-    const timers = new Set<ReturnType<typeof setTimeout>>();
     let cancelled = false;
 
-    const schedule = (fn: () => void, ms: number) => {
-      const id = setTimeout(() => {
-        timers.delete(id);
-        if (!cancelled) fn();
-      }, ms);
-      timers.add(id);
-    };
-
-    // Silent-skip: show generic greeting briefly, then null out location +
-    // weather_context and auto-advance. User never sees an error or manual
-    // input field.
+    // Silent-skip: null out location + weather_context and show the generic
+    // greeting. User advances via the Tiếp tục button — no auto-advance.
     const silentSkip = () => {
       if (cancelled) return;
       locationResolvedRef.current = true;
+      setData((prev) => ({
+        ...prev,
+        location: null,
+        weather_context: null,
+      }));
       setFeedback(GREETING_NO_LOCATION);
-      schedule(() => {
-        setData((prev) => ({
-          ...prev,
-          location: null,
-          weather_context: null,
-        }));
-        setStep((s) => (s === 2 ? 3 : s));
-        setFeedback("");
-      }, SILENT_SKIP_DELAY_MS);
     };
 
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
@@ -132,8 +117,6 @@ export function OnboardingSlider({
       return () => {
         cancelled = true;
         controller.abort();
-        timers.forEach(clearTimeout);
-        timers.clear();
       };
     }
 
@@ -177,8 +160,6 @@ export function OnboardingSlider({
     return () => {
       cancelled = true;
       controller.abort();
-      timers.forEach(clearTimeout);
-      timers.clear();
     };
   }, [step]);
 
@@ -195,24 +176,19 @@ export function OnboardingSlider({
     }
   };
 
-  const handleChoice = (
-    key: string,
-    value: any,
-    message: string,
-    isFinalStep = false
-  ) => {
-    const newData = { ...data, [key]: value };
-    setData(newData);
+  // Store a choice + show feedback. No auto-advance — user clicks a button.
+  const select = (key: string, value: unknown, message: string) => {
+    setData((prev) => ({ ...prev, [key]: value }));
     setFeedback(message);
-    if (isFinalStep) {
-      const finalData = {
-        ...newData,
-        timestamp: new Date().toISOString(),
-      } as OnboardingData;
-      onComplete(finalData);
-    } else {
-      setTimeout(nextStep, 1000);
-    }
+  };
+
+  // Final submission — builds the payload and hands it off.
+  const finish = () => {
+    const finalData = {
+      ...data,
+      timestamp: new Date().toISOString(),
+    } as OnboardingData;
+    onComplete(finalData);
   };
 
   const toggleTreatment = (item: string) => {
@@ -265,10 +241,10 @@ export function OnboardingSlider({
                     Chào bạn 👋
                   </Badge>
                   <h2 className="text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                    Chúng mình xưng hô với nhau thế nào nhỉ?
+                    Chào bạn, sẵn sàng cho hành trình Glow-up chưa?
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Hãy để Casa Mika biết tên bạn để buổi tư vấn thân thiện hơn.
+                    Cho mình biết tên bạn để mình gọi tên xuyên suốt hành trình nhé.
                   </p>
                 </div>
                 <input
@@ -304,14 +280,14 @@ export function OnboardingSlider({
                 </div>
                 <div className="space-y-2">
                   <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-                    Đang định vị...
+                    {feedback ? "Xong rồi!" : "Bạn đang ở đâu nhỉ?"}
                   </h2>
                   <p className="min-h-[3rem] text-sm text-muted-foreground">
                     {feedback ||
-                      "Chúng mình sẽ điều chỉnh tư vấn theo khí hậu nơi bạn sống."}
+                      "Để mình check nhanh chỉ số UV & độ ẩm cho da bạn."}
                   </p>
                 </div>
-                {data.location && (
+                {feedback && (
                   <Button size="lg" onClick={nextStep}>
                     Tiếp tục <ArrowRight className="ml-2 size-4" />
                   </Button>
@@ -333,13 +309,17 @@ export function OnboardingSlider({
                   <button
                     type="button"
                     onClick={() =>
-                      handleChoice(
+                      select(
                         "environment",
                         "office",
                         "Máy lạnh làm khô da lắm đấy, nhớ cấp ẩm nhé! ❄️"
                       )
                     }
-                    className={tileClass}
+                    className={cn(
+                      tileClass,
+                      data.environment === "office" &&
+                        "border-primary bg-primary/5 ring-2 ring-primary/40"
+                    )}
                   >
                     <span className="flex size-12 items-center justify-center rounded-lg bg-chart-2/10 text-chart-2">
                       <Snowflake className="size-6" />
@@ -349,13 +329,17 @@ export function OnboardingSlider({
                   <button
                     type="button"
                     onClick={() =>
-                      handleChoice(
+                      select(
                         "environment",
                         "outdoor",
                         "Nắng gắt quá, đừng quên kem chống nắng nha! ☀️"
                       )
                     }
-                    className={tileClass}
+                    className={cn(
+                      tileClass,
+                      data.environment === "outdoor" &&
+                        "border-primary bg-primary/5 ring-2 ring-primary/40"
+                    )}
                   >
                     <span className="flex size-12 items-center justify-center rounded-lg bg-chart-5/10 text-chart-5">
                       <Sun className="size-6" />
@@ -363,6 +347,14 @@ export function OnboardingSlider({
                     <span className="text-sm font-medium">Ngoài trời</span>
                   </button>
                 </div>
+                <Button
+                  size="lg"
+                  onClick={nextStep}
+                  disabled={!data.environment}
+                  className="w-full"
+                >
+                  Tiếp tục <ArrowRight className="ml-2 size-4" />
+                </Button>
               </div>
             )}
 
@@ -466,13 +458,7 @@ export function OnboardingSlider({
                   <Button
                     size="lg"
                     disabled={!data.habits?.water || !data.habits?.sleep}
-                    onClick={() =>
-                      handleChoice(
-                        "habits",
-                        data.habits,
-                        "Giấc ngủ là liều thuốc tiên cho làn da đấy! ✨"
-                      )
-                    }
+                    onClick={nextStep}
                     className="w-full"
                   >
                     Tiếp tục <ArrowRight className="ml-2 size-4" />
@@ -513,13 +499,7 @@ export function OnboardingSlider({
                 </div>
                 <Button
                   size="lg"
-                  onClick={() =>
-                    handleChoice(
-                      "current_treatments",
-                      data.current_treatments,
-                      "Wow, bạn cũng 'sành' skincare đấy chứ! 🧪"
-                    )
-                  }
+                  onClick={nextStep}
                   className="w-full"
                 >
                   Xong rồi <ArrowRight className="ml-2 size-4" />
@@ -543,14 +523,17 @@ export function OnboardingSlider({
                       key={goal.id}
                       type="button"
                       onClick={() =>
-                        handleChoice(
+                        select(
                           "primary_goal",
                           goal.id,
-                          "Mục tiêu đã rõ! Hãy để mình giúp bạn tỏa sáng. 🌟",
-                          true
+                          "Mục tiêu đã rõ! Hãy để mình giúp bạn tỏa sáng. 🌟"
                         )
                       }
-                      className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left text-foreground shadow-sm ring-1 ring-foreground/5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5"
+                      className={cn(
+                        "flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left text-foreground shadow-sm ring-1 ring-foreground/5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5",
+                        data.primary_goal === goal.id &&
+                          "border-primary bg-primary/5 ring-2 ring-primary/40"
+                      )}
                     >
                       <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         {goal.icon}
@@ -560,6 +543,14 @@ export function OnboardingSlider({
                     </button>
                   ))}
                 </div>
+                <Button
+                  size="lg"
+                  onClick={finish}
+                  disabled={!data.primary_goal}
+                  className="w-full"
+                >
+                  Bắt đầu phân tích <ArrowRight className="ml-2 size-4" />
+                </Button>
               </div>
             )}
           </motion.div>

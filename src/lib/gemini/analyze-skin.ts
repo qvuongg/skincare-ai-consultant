@@ -31,11 +31,22 @@ Nhiệm vụ:
 
 OUTPUT: CHỈ trả về một JSON hợp lệ, KHÔNG markdown, KHÔNG code fence, KHÔNG text thừa. Schema bắt buộc: skin_type, concerns[], morning_routine[], evening_routine[], ingredients[], lifestyle_insights[], vibe_note.`;
 
-/** Override with GOOGLE_GENERATIVE_AI_MODEL (e.g. gemini-1.5-flash, gemini-2.0-flash). */
-export function getGeminiModelId(): string {
-  return (
-    process.env.GOOGLE_GENERATIVE_AI_MODEL?.trim() || "gemini-1.5-flash"
-  );
+/**
+ * Model fallback chain: try each in order, fall through to the next on
+ * persistent 503 (capacity). Override with GOOGLE_GENERATIVE_AI_MODEL —
+ * accepts a single model or a comma-separated list.
+ * NOTE: gemini-1.5-* was deprecated by Google in Sept 2025 — do not use.
+ */
+export function getGeminiModelIds(): string[] {
+  const override = process.env.GOOGLE_GENERATIVE_AI_MODEL?.trim();
+  if (override) {
+    const parsed = override
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parsed.length > 0) return parsed;
+  }
+  return ["gemini-2.5-flash", "gemini-2.0-flash"];
 }
 
 function getApiKey(): string {
@@ -101,36 +112,36 @@ async function generateWithRetry(
   throw lastErr;
 }
 
+type OnboardingContext = {
+  location?: string | null;
+  environment?: string;
+  habits?: { water?: string; sleep?: string };
+  current_treatments?: string[];
+  primary_goal?: string;
+};
+
 export async function analyzeSkinImage(
   buffer: Buffer,
   mimeType: string,
-  onboardingContext?: any
+  onboardingContext?: unknown
 ): Promise<SkinAnalysis> {
   const genAI = new GoogleGenerativeAI(getApiKey());
-  const model = genAI.getGenerativeModel({
-    model: getGeminiModelId(),
-    systemInstruction: SYSTEM_PROMPT,
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.7,
-    },
-  });
-
   const base64 = buffer.toString("base64");
 
   let prompt =
     "Hãy phân tích hình ảnh da mặt này và chỉ trả về JSON hợp lệ khớp với schema yêu cầu. Không sử dụng markdown, không giải thích ngoài JSON.";
 
-  if (onboardingContext) {
-    const env = onboardingContext.environment;
-    const water = onboardingContext.habits?.water;
-    const sleepHabit = onboardingContext.habits?.sleep;
+  if (onboardingContext && typeof onboardingContext === "object") {
+    const ctx = onboardingContext as OnboardingContext;
+    const env = ctx.environment;
+    const water = ctx.habits?.water;
+    const sleepHabit = ctx.habits?.sleep;
     prompt += `\n\nContext người dùng (BẮT BUỘC lồng ghép vào lifestyle_insights và gợi ý):
-    - Vị trí: ${onboardingContext.location ?? "không rõ"}
+    - Vị trí: ${ctx.location ?? "không rõ"}
     - Môi trường: ${env === "office" ? "Văn phòng máy lạnh" : env === "outdoor" ? "Ngoài trời" : env ?? "không rõ"}
     - Thói quen: Uống nước ${water === "low" ? "ít" : water === "high" ? "nhiều" : "đủ"}, Giấc ngủ ${sleepHabit === "late" ? "thức khuya" : sleepHabit === "early" ? "sớm" : "đủ giấc"}
-    - Các hoạt chất đang dùng: ${onboardingContext.current_treatments?.join(", ") || "Không có"}
-    - Mục tiêu chính: ${onboardingContext.primary_goal ?? "chưa xác định"}`;
+    - Các hoạt chất đang dùng: ${ctx.current_treatments?.join(", ") || "Không có"}
+    - Mục tiêu chính: ${ctx.primary_goal ?? "chưa xác định"}`;
   }
 
   const parts = [
@@ -143,26 +154,53 @@ export async function analyzeSkinImage(
     },
   ];
 
-  const result = await generateWithRetry(model, parts);
-  const text = result.response.text();
-  if (!text) {
-    throw new Error("Empty response from model");
+  const modelIds = getGeminiModelIds();
+  let lastErr: unknown;
+
+  for (const modelId of modelIds) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelId,
+        systemInstruction: SYSTEM_PROMPT,
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.7,
+        },
+      });
+
+      const result = await generateWithRetry(model, parts);
+      const text = result.response.text();
+      if (!text) {
+        throw new Error("Empty response from model");
+      }
+
+      try {
+        return parseAnalysisJson(text);
+      } catch {
+        const retry = await generateWithRetry(model, [
+          `${prompt}\n\nCâu trả lời trước không phải JSON hợp lệ. Hãy phản hồi lại CHỈ với một đối tượng JSON duy nhất, không code fence.`,
+          {
+            inlineData: {
+              mimeType,
+              data: base64,
+            },
+          },
+        ]);
+        const retryText = retry.response.text();
+        if (!retryText) throw new Error("Empty retry response from model");
+        return parseAnalysisJson(retryText);
+      }
+    } catch (err) {
+      lastErr = err;
+      if (isRetryable503(err) && modelId !== modelIds[modelIds.length - 1]) {
+        console.warn(
+          `Gemini model ${modelId} exhausted retries with 503; falling back to next model.`
+        );
+        continue;
+      }
+      throw err;
+    }
   }
 
-  try {
-    return parseAnalysisJson(text);
-  } catch {
-    const retry = await generateWithRetry(model, [
-      `${prompt}\n\nCâu trả lời trước không phải JSON hợp lệ. Hãy phản hồi lại CHỈ với một đối tượng JSON duy nhất, không code fence.`,
-      {
-        inlineData: {
-          mimeType,
-          data: base64,
-        },
-      },
-    ]);
-    const retryText = retry.response.text();
-    if (!retryText) throw new Error("Empty retry response from model");
-    return parseAnalysisJson(retryText);
-  }
+  throw lastErr ?? new Error("All Gemini models exhausted");
 }

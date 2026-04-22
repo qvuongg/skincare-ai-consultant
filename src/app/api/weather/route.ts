@@ -6,9 +6,13 @@ const WEATHER_API_URL = "https://api.weatherapi.com/v1/current.json";
 const FETCH_TIMEOUT_MS = 5000;
 
 export async function GET(request: Request) {
-  const apiKey = process.env.WEATHER_API_KEY;
+  const apiKey = process.env.WEATHER_API_KEY?.trim();
   if (!apiKey) {
-    console.error("WEATHER_API_KEY is not set");
+    console.error(
+      "WEATHER_API_KEY is not set. On Vercel, add it under " +
+        "Project Settings → Environment Variables (all target environments), " +
+        "then redeploy. .env.local is NOT read by deployed builds."
+    );
     return NextResponse.json(
       { error: "Weather service unavailable." },
       { status: 500 }
@@ -16,8 +20,18 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const lat = Number(searchParams.get("lat"));
-  const lon = Number(searchParams.get("lon"));
+  const latRaw = searchParams.get("lat");
+  const lonRaw = searchParams.get("lon");
+
+  if (latRaw == null || lonRaw == null) {
+    return NextResponse.json(
+      { error: "Missing lat or lon query parameters." },
+      { status: 400 }
+    );
+  }
+
+  const lat = Number(latRaw);
+  const lon = Number(lonRaw);
 
   if (
     !Number.isFinite(lat) ||
@@ -57,25 +71,34 @@ export async function GET(request: Request) {
     }
 
     const json = (await res.json()) as {
-      location?: { name?: string };
+      location?: { name?: string; region?: string; country?: string };
       current?: { uv?: number; humidity?: number };
     };
 
     const uv = json.current?.uv;
     const humidity = json.current?.humidity;
-    const city = json.location?.name?.trim();
+    const name = json.location?.name?.trim();
+    const region = json.location?.region?.trim();
+    const country = json.location?.country?.trim();
 
-    if (
-      typeof uv !== "number" ||
-      typeof humidity !== "number" ||
-      !city
-    ) {
+    if (typeof uv !== "number" || typeof humidity !== "number" || !name) {
       console.error("WeatherAPI unexpected shape:", json);
       return NextResponse.json(
         { error: "Unexpected weather response." },
         { status: 502 }
       );
     }
+
+    // Prefer "Neighborhood, Region"; fall back to country when WeatherAPI
+    // doesn't populate region (common for districts/beaches in Vietnam).
+    // Dedupe when WeatherAPI returns the same value in multiple fields.
+    const context =
+      region && region !== name
+        ? region
+        : country && country !== name
+          ? country
+          : null;
+    const city = context ? `${name}, ${context}` : name;
 
     return NextResponse.json({ uv, humidity, city });
   } catch (err) {
