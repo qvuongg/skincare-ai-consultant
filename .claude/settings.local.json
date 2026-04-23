@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(find /Users/buiquocvuong/Projects/skincare-ai-consultant/src/lib/translations* -type f)"
     ]
   }
 }

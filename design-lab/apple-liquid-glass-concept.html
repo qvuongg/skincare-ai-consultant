@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Casa Mika · Liquid Glass v2026 — Chuyên Gia Tư Vấn Da Liễu AI</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Framer Motion (UMD) -->
+<script src="https://cdn.jsdelivr.net/npm/framer-motion@11.0.8/dist/framer-motion.js"></script>
+
+<!-- Fonts — Geist to match the app; Vietnamese subset -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  /* ===========================================================
+     ADAPTIVE TINTING — CSS variables inherited by glass panels.
+     The mesh below updates these in real time for 'Liquid' feel.
+     =========================================================== */
+  :root {
+    --tint-pink:  255, 182, 210;
+    --tint-blue:  170, 205, 255;
+    --tint-mint:  176, 240, 220;
+    --tint-peach: 255, 210, 180;
+
+    --glass-light: rgba(255, 255, 255, 0.20);
+    --glass-mid:   rgba(255, 255, 255, 0.35);
+    --glass-dark:  rgba(0,   0,   0,   0.30);
+
+    --stroke-inner: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+    --stroke-edge:  inset 0 1px 0 rgba(255, 255, 255, 0.75),
+                    inset 0 -1px 0 rgba(255, 255, 255, 0.15);
+    --shadow-soft:  0 30px 60px -20px rgba(40, 20, 80, 0.35),
+                    0 10px 20px -10px rgba(40, 20, 80, 0.25);
+    --shadow-press: 0 8px 20px -8px rgba(40, 20, 80, 0.35),
+                    inset 0 2px 4px rgba(255, 255, 255, 0.6);
+
+    --radius-squircle: 2.5rem;
+    --radius-pill:     999px;
+  }
+
+  html, body {
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    letter-spacing: -0.011em;
+    background: #eef2ff;
+    overflow-x: hidden;
+    /* App uses oklch(0.22 0.02 255) for foreground — this hex is close enough */
+    color: #1f2538;
+  }
+
+  .display-tight {
+    font-family: 'Geist', sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+  }
+  .display-tight em {
+    font-style: italic;
+    font-weight: 500;
+    /* App primary: oklch(0.42 0.11 245) ≈ indigo */
+    color: #2b4b9e;
+    background: linear-gradient(135deg, #2b4b9e, #6a5fbd);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* ===========================================================
+     ANIMATED MESH GRADIENT — vibrant Pink / Blue / Mint backdrop
+     Drives adaptive tinting for all glass surfaces above it.
+     =========================================================== */
+  .mesh-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    background: #f5f7ff;
+  }
+  .mesh-blob {
+    position: absolute;
+    width: 55vw;
+    height: 55vw;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.85;
+    will-change: transform;
+  }
+  .mesh-blob.pink  { background: rgb(var(--tint-pink));  top:-10%; left:-10%; animation: drift1 18s ease-in-out infinite; }
+  .mesh-blob.blue  { background: rgb(var(--tint-blue));  bottom:-15%; right:-10%; animation: drift2 22s ease-in-out infinite; }
+  .mesh-blob.mint  { background: rgb(var(--tint-mint));  top:30%; right:20%; animation: drift3 20s ease-in-out infinite; }
+  .mesh-blob.peach { background: rgb(var(--tint-peach)); bottom:20%; left:25%; width:40vw; height:40vw; animation: drift4 24s ease-in-out infinite; }
+
+  @keyframes drift1 { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(8vw,6vh) scale(1.15);} }
+  @keyframes drift2 { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(-10vw,-4vh) scale(1.1);} }
+  @keyframes drift3 { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(-5vw,8vh) scale(0.9);} }
+  @keyframes drift4 { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(6vw,-5vh) scale(1.2);} }
+
+  /* subtle grain to mimic physical dispersion */
+  .grain::after {
+    content:"";
+    position:fixed; inset:0;
+    z-index:1;
+    pointer-events:none;
+    opacity:.05;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.8'/></svg>");
+  }
+
+  /* ===========================================================
+     GLASS PRIMITIVES — Liquid Glass v2026
+     Every glass surface uses:
+       • backdrop-filter blur + saturate
+       • layered inner stroke (top-lit, bottom-shadowed)
+       • outer soft shadow for elevation
+       • squircle radius for 'Floating Bubble' feel
+     =========================================================== */
+  .glass {
+    background: var(--glass-light);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    box-shadow: var(--stroke-edge), var(--shadow-soft);
+    border-radius: var(--radius-squircle);
+    position: relative;
+    isolation: isolate;
+  }
+  .glass-mid {
+    background: var(--glass-mid);
+    backdrop-filter: blur(44px) saturate(200%);
+    -webkit-backdrop-filter: blur(44px) saturate(200%);
+    box-shadow: var(--stroke-edge), var(--shadow-soft);
+    border-radius: var(--radius-squircle);
+  }
+  .glass-dark {
+    background: var(--glass-dark);
+    backdrop-filter: blur(36px) saturate(140%);
+    -webkit-backdrop-filter: blur(36px) saturate(140%);
+    box-shadow: var(--stroke-inner),
+                0 30px 60px -20px rgba(0,0,0,0.45);
+    border-radius: var(--radius-squircle);
+    color: #fff;
+  }
+
+  /* Refractive highlight strip — simulates light bending at edges */
+  .refractive::before {
+    content:"";
+    position:absolute;
+    top:0; left:12%;
+    width:76%; height:2px;
+    background: linear-gradient(90deg,
+      transparent,
+      rgba(255,255,255,0.9),
+      rgba(255,255,255,0.6),
+      transparent);
+    border-radius: 99px;
+    filter: blur(0.5px);
+    pointer-events:none;
+  }
+  .refractive::after {
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius: inherit;
+    pointer-events:none;
+    background: linear-gradient(135deg,
+      rgba(255,255,255,0.18) 0%,
+      rgba(255,255,255,0) 40%,
+      rgba(255,255,255,0) 60%,
+      rgba(255,255,255,0.08) 100%);
+  }
+
+  /* Frosted control-center style button */
+  .frost-btn {
+    background: rgba(255,255,255,0.28);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      inset 0 -1px 0 rgba(255,255,255,0.2),
+      0 10px 24px -10px rgba(80,40,120,0.35);
+    border-radius: var(--radius-pill);
+    transition: all 220ms cubic-bezier(.4,1.3,.5,1);
+    color: #1f2538;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .frost-btn:hover {
+    background: rgba(255,255,255,0.55);
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,1),
+      inset 0 -1px 0 rgba(255,255,255,0.3),
+      0 16px 32px -10px rgba(80,40,120,0.5);
+  }
+  .frost-btn:active {
+    transform: translateY(1px) scale(0.98);
+    background: rgba(255,255,255,0.45);
+    box-shadow: var(--shadow-press);
+  }
+
+  .frost-btn.primary {
+    /* App primary: oklch(0.42 0.11 245) — deep indigo */
+    background: rgba(43, 75, 158, 0.90);
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.35),
+      inset 0 -1px 0 rgba(0,0,0,0.25),
+      0 14px 32px -10px rgba(43, 75, 158, 0.6);
+  }
+  .frost-btn.primary:hover {
+    background: rgba(43, 75, 158, 0.98);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.45),
+      inset 0 -1px 0 rgba(0,0,0,0.3),
+      0 18px 40px -10px rgba(43, 75, 158, 0.7);
+  }
+
+  /* Chip/pill tag */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.45);
+    backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6), 0 2px 6px rgba(80,40,120,0.1);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: #1f2538;
+  }
+  .chip .dot { width: 6px; height: 6px; border-radius: 99px; }
+
+  /* ===========================================================
+     SCAN RING — the 'Wow Moment' scanning laser
+     =========================================================== */
+  .scan-laser {
+    position: absolute;
+    left: 6%; right: 6%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent);
+    filter: drop-shadow(0 0 10px rgba(255,255,255,.8));
+    border-radius: 99px;
+    animation: scan 2.4s linear infinite;
+  }
+  @keyframes scan {
+    0%   { top: 6%;  opacity: 0;   }
+    10%  {           opacity: 1;   }
+    90%  {           opacity: 1;   }
+    100% { top: 94%; opacity: 0;   }
+  }
+  .scan-grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mix-blend-mode: overlay;
+  }
+
+  /* Elastic bounce keyframe used on result reveal */
+  @keyframes elastic-in {
+    0%   { transform: scale(0.6) translateY(40px); opacity: 0; }
+    55%  { transform: scale(1.05) translateY(-8px); opacity: 1; }
+    75%  { transform: scale(0.97) translateY(3px); }
+    100% { transform: scale(1)    translateY(0);   }
+  }
+  .elastic-in { animation: elastic-in 900ms cubic-bezier(.35,1.6,.4,1) both; }
+
+  @keyframes pulse-ring {
+    0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.6); }
+    50%     { box-shadow: 0 0 0 16px rgba(255,255,255,0); }
+  }
+  .pulse-ring { animation: pulse-ring 2.4s ease-out infinite; }
+
+  @keyframes float-y {
+    0%,100% { transform: translateY(0); }
+    50%     { transform: translateY(-6px); }
+  }
+  .float-y { animation: float-y 5s ease-in-out infinite; }
+
+  /* Score bar */
+  .score-track {
+    height: 6px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.35);
+    box-shadow: inset 0 1px 2px rgba(80,40,120,0.15);
+    overflow: hidden;
+  }
+  .score-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, rgb(var(--tint-pink)), rgb(var(--tint-blue)), rgb(var(--tint-mint)));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+  }
+
+  /* Radial gauge */
+  .gauge-wrap { position: relative; width: 120px; height: 120px; }
+  .gauge-wrap svg { transform: rotate(-90deg); }
+  .gauge-wrap .gauge-track { stroke: rgba(255,255,255,0.35); }
+  .gauge-wrap .gauge-fill  { stroke: url(#gaugeGrad); stroke-linecap: round; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(80,40,120,0.2); border-radius: 99px; }
+
+  /* Respect mobile */
+  @media (max-width: 768px) {
+    .mesh-blob { filter: blur(60px); }
+  }
+</style>
+</head>
+
+<body class="grain relative min-h-screen text-[#1f2538]">
+
+<!-- ============================================================
+     LAYER 0 — Animated mesh gradient (Adaptive Tinting source)
+     ============================================================ -->
+<div class="mesh-bg" aria-hidden="true">
+  <div class="mesh-blob pink"></div>
+  <div class="mesh-blob blue"></div>
+  <div class="mesh-blob mint"></div>
+  <div class="mesh-blob peach"></div>
+</div>
+
+<!-- ============================================================
+     LAYER 1 — Floating Navigation Bubble (decoupled from edges)
+     ============================================================ -->
+<nav class="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[min(94%,880px)]">
+  <div class="glass refractive flex items-center justify-between px-3 py-2.5">
+    <div class="flex items-center gap-2 pl-3">
+      <div class="w-8 h-8 rounded-2xl grid place-items-center"
+           style="background: linear-gradient(135deg, rgba(255,182,210,.9), rgba(170,205,255,.9)); box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 6px 14px -6px rgba(80,40,120,.4);">
+        <!-- droplet icon -->
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 3s6 7 6 12a6 6 0 1 1-12 0c0-5 6-12 6-12z" fill="white"/>
+        </svg>
+      </div>
+      <span class="font-semibold tracking-tight text-[15px]">Casa Mika<span class="opacity-60 font-normal"> · AI</span></span>
+    </div>
+
+    <div class="hidden md:flex items-center gap-1 text-[13px] font-medium">
+      <a class="px-3 py-1.5 rounded-full hover:bg-white/40 transition" href="#">Quét da</a>
+      <a class="px-3 py-1.5 rounded-full hover:bg-white/40 transition" href="#">Quy trình</a>
+      <a class="px-3 py-1.5 rounded-full hover:bg-white/40 transition" href="#">Gợi ý</a>
+      <a class="px-3 py-1.5 rounded-full hover:bg-white/40 transition" href="#">Nhật ký</a>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button class="frost-btn px-3 py-1.5 text-[12px]">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" class="inline -mt-0.5"><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/></svg>
+        VN
+      </button>
+      <button class="frost-btn primary px-4 py-1.5 text-[12px]">Bắt đầu quét</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================================================
+     MAIN CONTENT
+     ============================================================ -->
+<main class="relative z-10 px-4 md:px-8 pt-28 pb-40 max-w-[1280px] mx-auto space-y-10">
+
+  <!-- ========== HERO ========== -->
+  <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Hero copy + CTA -->
+    <div class="glass refractive lg:col-span-7 p-8 md:p-12 flex flex-col justify-between min-h-[440px] overflow-hidden">
+      <div class="flex items-center gap-2">
+        <span class="chip"><span class="dot" style="background:#10b981"></span>Tư vấn chăm sóc da hỗ trợ bởi AI</span>
+        <span class="chip">Gemini · Phiên bản 2026</span>
+      </div>
+
+      <div class="mt-8">
+        <h1 class="display-tight text-[52px] md:text-[68px]">
+          Chuyên gia <em>tư vấn</em><br/>
+          da liễu AI.
+        </h1>
+        <p class="mt-5 max-w-[52ch] text-[15px] md:text-base text-[#1f2538]/75 leading-relaxed">
+          Trải nghiệm lâm sàng, nhẹ nhàng để hiểu loại da của bạn, các vấn đề
+          phổ biến và xây dựng quy trình sáng-tối hợp lý — với kiến thức về
+          thành phần bạn có thể thảo luận cùng bác sĩ da liễu.
+        </p>
+        <p class="mt-3 text-[12.5px] text-[#1f2538]/55">
+          Không thay thế cho lời khuyên y tế chuyên nghiệp.
+        </p>
+      </div>
+
+      <div class="mt-10 flex flex-wrap items-center gap-3">
+        <button class="frost-btn primary px-6 py-3.5 text-[14px] flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-3h6l2 3h3v12H4V7z" stroke="white" stroke-width="1.7"/><circle cx="12" cy="13" r="4" stroke="white" stroke-width="1.7"/></svg>
+          Bắt đầu quét da
+        </button>
+        <button class="frost-btn px-5 py-3.5 text-[14px]">Cách thức hoạt động</button>
+        <div class="flex items-center gap-2 pl-2 text-[12.5px] text-[#1f2538]/65">
+          <div class="flex -space-x-2">
+            <div class="w-6 h-6 rounded-full border-2 border-white/80" style="background: rgb(var(--tint-pink));"></div>
+            <div class="w-6 h-6 rounded-full border-2 border-white/80" style="background: rgb(var(--tint-blue));"></div>
+            <div class="w-6 h-6 rounded-full border-2 border-white/80" style="background: rgb(var(--tint-mint));"></div>
+          </div>
+          <span>42.118 lượt quét · tuần này</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scanner Preview (Wow Moment) -->
+    <div class="lg:col-span-5 relative">
+      <div class="glass-dark refractive p-3 h-full min-h-[440px] overflow-hidden relative">
+        <!-- image plate -->
+        <div class="relative h-full rounded-[1.9rem] overflow-hidden"
+             style="background:
+               radial-gradient(120% 80% at 30% 20%, rgba(255,210,220,.55), transparent 60%),
+               radial-gradient(120% 80% at 80% 90%, rgba(170,205,255,.55), transparent 60%),
+               linear-gradient(160deg, #1a0b33, #3a1b66);">
+
+          <!-- face silhouette (SVG) -->
+          <svg class="absolute inset-0 m-auto" width="75%" height="75%" viewBox="0 0 200 260" fill="none" style="top:5%;">
+            <defs>
+              <linearGradient id="faceG" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="rgba(255,255,255,.55)"/>
+                <stop offset="1" stop-color="rgba(255,255,255,.05)"/>
+              </linearGradient>
+            </defs>
+            <path d="M100 20 C55 20 35 65 35 115 C35 165 55 230 100 240 C145 230 165 165 165 115 C165 65 145 20 100 20Z"
+                  stroke="url(#faceG)" stroke-width="1.2" fill="none" stroke-dasharray="2 3"/>
+            <circle cx="78"  cy="110" r="4" fill="rgba(255,255,255,.6)"/>
+            <circle cx="122" cy="110" r="4" fill="rgba(255,255,255,.6)"/>
+            <path d="M80 170 Q100 182 120 170" stroke="rgba(255,255,255,.55)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          </svg>
+
+          <!-- grid + laser -->
+          <div class="scan-grid"></div>
+          <div class="scan-laser"></div>
+
+          <!-- corner frame -->
+          <div class="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-white/80 rounded-tl-lg"></div>
+          <div class="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-white/80 rounded-tr-lg"></div>
+          <div class="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-white/80 rounded-bl-lg"></div>
+          <div class="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-white/80 rounded-br-lg"></div>
+
+          <!-- telemetry chips -->
+          <div class="absolute top-5 left-5 flex flex-col gap-2">
+            <span class="chip" style="background:rgba(0,0,0,.35); color:#fff; box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);">
+              <span class="dot" style="background:#34d399"></span>
+              Ánh sáng · đủ
+            </span>
+            <span class="chip" style="background:rgba(0,0,0,.35); color:#fff; box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);">
+              <span class="dot" style="background:#fbbf24"></span>
+              Góc · 3°
+            </span>
+          </div>
+
+          <!-- bottom progress bubble -->
+          <div class="absolute left-4 right-4 bottom-4">
+            <div class="rounded-[1.5rem] p-3 pr-4 flex items-center gap-3"
+                 style="background:rgba(255,255,255,.14); backdrop-filter:blur(24px) saturate(160%);">
+              <div class="w-9 h-9 rounded-full grid place-items-center pulse-ring"
+                   style="background:rgba(255,255,255,.25);">
+                <div class="w-2 h-2 rounded-full bg-white"></div>
+              </div>
+              <div class="flex-1 text-white">
+                <p class="text-[12px] opacity-75 leading-none">Đang phân tích cấu trúc lỗ chân lông…</p>
+                <div class="mt-1.5 score-track"><div class="score-fill" style="width:68%;"></div></div>
+              </div>
+              <span class="text-white/90 text-[13px] font-semibold tabular-nums">68%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ONBOARDING STRIP ========== -->
+  <section class="glass refractive p-6 md:p-7">
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <p class="text-[11px] uppercase tracking-[0.18em] text-[#1f2538]/55 font-semibold">Bước 4 / 6</p>
+        <h3 class="mt-1 text-xl font-semibold">Thói quen sinh hoạt?</h3>
+        <p class="mt-0.5 text-[12.5px] text-[#1f2538]/60">Nền tảng sức khoẻ bên trong quyết định rất lớn đến làn da.</p>
+      </div>
+      <div class="score-track w-[35%] shrink-0"><div class="score-fill" style="width:66%;"></div></div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <!-- each is a 'bubble' -->
+      <button class="glass-mid refractive p-4 text-left hover:translate-y-[-2px] transition" style="border-radius:1.75rem;">
+        <div class="w-9 h-9 rounded-2xl grid place-items-center mb-3"
+             style="background:linear-gradient(135deg, rgb(var(--tint-pink)), rgb(var(--tint-peach)));">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="5" stroke="white" stroke-width="1.7"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5" stroke="white" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </div>
+        <p class="text-[11.5px] opacity-55 uppercase tracking-wide">Khí hậu</p>
+        <p class="text-[14px] font-semibold mt-0.5">Ẩm · UV 9</p>
+      </button>
+
+      <button class="glass-mid refractive p-4 text-left hover:translate-y-[-2px] transition" style="border-radius:1.75rem;">
+        <div class="w-9 h-9 rounded-2xl grid place-items-center mb-3"
+             style="background:linear-gradient(135deg, rgb(var(--tint-blue)), rgb(var(--tint-mint)));">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2a5 5 0 0 0-5 5c0 4 5 7 5 7s5-3 5-7a5 5 0 0 0-5-5z" stroke="white" stroke-width="1.7"/><circle cx="12" cy="7" r="2" fill="white"/></svg>
+        </div>
+        <p class="text-[11.5px] opacity-55 uppercase tracking-wide">Vị trí</p>
+        <p class="text-[14px] font-semibold mt-0.5">TP. Hồ Chí Minh</p>
+      </button>
+
+      <button class="glass-mid refractive p-4 text-left hover:translate-y-[-2px] transition" style="border-radius:1.75rem;">
+        <div class="w-9 h-9 rounded-2xl grid place-items-center mb-3"
+             style="background:linear-gradient(135deg, rgb(var(--tint-mint)), rgb(var(--tint-blue)));">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 17h10M7 13h10M9 9c0-1.5 1.5-2 3-2s3 .5 3 2-3 2-3 4" stroke="white" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </div>
+        <p class="text-[11.5px] opacity-55 uppercase tracking-wide">Lượng nước</p>
+        <p class="text-[14px] font-semibold mt-0.5">Đủ</p>
+      </button>
+
+      <button class="glass-mid refractive p-4 text-left hover:translate-y-[-2px] transition" style="border-radius:1.75rem;">
+        <div class="w-9 h-9 rounded-2xl grid place-items-center mb-3"
+             style="background:linear-gradient(135deg, rgb(var(--tint-peach)), rgb(var(--tint-pink)));">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 13a9 9 0 1 1-10-10 7 7 0 0 0 10 10z" stroke="white" stroke-width="1.7"/></svg>
+        </div>
+        <p class="text-[11.5px] opacity-55 uppercase tracking-wide">Giấc ngủ</p>
+        <p class="text-[14px] font-semibold mt-0.5">Cú đêm</p>
+      </button>
+    </div>
+
+    <div class="mt-5 flex items-center justify-between">
+      <button class="frost-btn px-4 py-2 text-[13px]">Quay lại</button>
+      <button class="frost-btn primary px-5 py-2.5 text-[13px]">Tiếp tục →</button>
+    </div>
+  </section>
+
+  <!-- ========== WOW MOMENT — RESULT DASHBOARD ========== -->
+  <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Sticky portrait -->
+    <div class="lg:col-span-5">
+      <div class="glass-dark refractive p-3 sticky top-28">
+        <div class="relative h-[460px] rounded-[1.9rem] overflow-hidden"
+             style="background:
+               radial-gradient(80% 60% at 50% 30%, rgba(255,220,220,.6), transparent 70%),
+               linear-gradient(160deg, #2a0f4e, #5a2b94);">
+          <!-- Portrait bust -->
+          <svg class="absolute inset-0 m-auto" width="68%" height="90%" viewBox="0 0 200 260" style="top:2%;">
+            <defs>
+              <radialGradient id="skinGrad" cx="50%" cy="40%" r="60%">
+                <stop offset="0" stop-color="#ffd6c5"/>
+                <stop offset="0.7" stop-color="#c99b8c"/>
+                <stop offset="1" stop-color="#3a1b66"/>
+              </radialGradient>
+            </defs>
+            <ellipse cx="100" cy="115" rx="60" ry="80" fill="url(#skinGrad)"/>
+            <ellipse cx="82"  cy="110" rx="4" ry="5" fill="#2a0f4e"/>
+            <ellipse cx="118" cy="110" rx="4" ry="5" fill="#2a0f4e"/>
+            <path d="M82 150 Q100 162 118 150" stroke="#2a0f4e" stroke-width="2" fill="none" stroke-linecap="round"/>
+            <!-- analysis markers -->
+            <circle cx="70"  cy="95"  r="3" fill="#ffb4d2" opacity=".9"/>
+            <circle cx="130" cy="95"  r="3" fill="#aacdff" opacity=".9"/>
+            <circle cx="100" cy="135" r="3" fill="#b0f0dc" opacity=".9"/>
+            <circle cx="90"  cy="75"  r="3" fill="#ffd2b4" opacity=".9"/>
+          </svg>
+
+          <!-- Bubble annotations on face -->
+          <div class="absolute top-[22%] left-[8%] chip" style="background:rgba(255,255,255,.25); color:#fff; box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);">
+            <span class="dot" style="background:#ff9fc5"></span> Vùng chữ T · dầu
+          </div>
+          <div class="absolute top-[42%] right-[6%] chip" style="background:rgba(255,255,255,.25); color:#fff; box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);">
+            <span class="dot" style="background:#fbbf24"></span> Da thiếu nước
+          </div>
+          <div class="absolute bottom-[18%] left-[12%] chip" style="background:rgba(255,255,255,.25); color:#fff; box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);">
+            <span class="dot" style="background:#a7f3d0"></span> Đều màu
+          </div>
+
+          <!-- Verdict header -->
+          <div class="absolute left-4 right-4 bottom-4 rounded-[1.5rem] p-4"
+               style="background:rgba(255,255,255,.14); backdrop-filter:blur(24px) saturate(160%);">
+            <p class="text-white/70 text-[11px] uppercase tracking-[0.15em] font-semibold">Loại da</p>
+            <p class="text-white text-lg font-semibold mt-0.5">Da hỗn hợp · Thiếu nước</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analysis right rail -->
+    <div class="lg:col-span-7 space-y-5 elastic-in">
+
+      <!-- Overall score -->
+      <div class="glass refractive p-6 flex items-center gap-6">
+        <div class="gauge-wrap shrink-0">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="gaugeGrad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#ff9fc5"/>
+                <stop offset="0.5" stop-color="#aacdff"/>
+                <stop offset="1" stop-color="#a7f3d0"/>
+              </linearGradient>
+            </defs>
+            <circle cx="60" cy="60" r="48" fill="none" class="gauge-track" stroke-width="10"/>
+            <circle cx="60" cy="60" r="48" fill="none" class="gauge-fill"
+                    stroke-width="10"
+                    stroke-dasharray="301.6"
+                    stroke-dashoffset="90"/>
+          </svg>
+          <div class="absolute inset-0 grid place-items-center text-center">
+            <div>
+              <p class="text-[28px] font-semibold leading-none tabular-nums">72</p>
+              <p class="text-[10px] uppercase tracking-widest opacity-60 mt-1">Chỉ số làn da</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1 flex-wrap">
+            <span class="chip"><span class="dot" style="background:#10b981"></span> đang cải thiện</span>
+            <span class="chip">+8 điểm so với lần trước</span>
+          </div>
+          <h2 class="text-[22px] md:text-[24px] font-semibold leading-tight tracking-tight">
+            Hàng rào da của bạn sắp ổn rồi. Hãy khoá độ ẩm thật tốt.
+          </h2>
+          <p class="text-[13px] text-[#1f2538]/65 mt-1.5">
+            Quét lúc 14:22 · TP. Hồ Chí Minh · camera trước · độ ẩm 78%
+          </p>
+        </div>
+      </div>
+
+      <!-- Metric row -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="glass-mid refractive p-4" style="border-radius:1.6rem;">
+          <p class="text-[11px] uppercase tracking-widest opacity-55">Cấp ẩm</p>
+          <p class="text-2xl font-semibold mt-1">54<span class="text-sm opacity-60">/100</span></p>
+          <div class="score-track mt-2"><div class="score-fill" style="width:54%; background:linear-gradient(90deg,#aacdff,#b0f0dc);"></div></div>
+        </div>
+        <div class="glass-mid refractive p-4" style="border-radius:1.6rem;">
+          <p class="text-[11px] uppercase tracking-widest opacity-55">Hàng rào</p>
+          <p class="text-2xl font-semibold mt-1">68<span class="text-sm opacity-60">/100</span></p>
+          <div class="score-track mt-2"><div class="score-fill" style="width:68%; background:linear-gradient(90deg,#ffb4d2,#ffd2b4);"></div></div>
+        </div>
+        <div class="glass-mid refractive p-4" style="border-radius:1.6rem;">
+          <p class="text-[11px] uppercase tracking-widest opacity-55">Sắc tố</p>
+          <p class="text-2xl font-semibold mt-1">81<span class="text-sm opacity-60">/100</span></p>
+          <div class="score-track mt-2"><div class="score-fill" style="width:81%; background:linear-gradient(90deg,#b0f0dc,#aacdff);"></div></div>
+        </div>
+        <div class="glass-mid refractive p-4" style="border-radius:1.6rem;">
+          <p class="text-[11px] uppercase tracking-widest opacity-55">Kết cấu</p>
+          <p class="text-2xl font-semibold mt-1">63<span class="text-sm opacity-60">/100</span></p>
+          <div class="score-track mt-2"><div class="score-fill" style="width:63%; background:linear-gradient(90deg,#ffd2b4,#ffb4d2);"></div></div>
+        </div>
+      </div>
+
+      <!-- Concerns + Actives -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="glass refractive p-6">
+          <p class="text-[11px] uppercase tracking-[0.18em] opacity-55 font-semibold">Vấn đề về da</p>
+          <ul class="mt-3 space-y-2.5 text-[14px]">
+            <li class="flex items-start gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style="background:#ff9fc5;"></span><span><b>Da thiếu nước</b> — gò má xỉn màu, bong nhẹ vùng quai hàm.</span></li>
+            <li class="flex items-start gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style="background:#fbbf24;"></span><span><b>Tắc nghẽn vùng chữ T</b> — kết cấu lỗ chân lông rõ trên sống mũi.</span></li>
+            <li class="flex items-start gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style="background:#aacdff;"></span><span><b>Lão hoá sớm</b> — nếp li ti dưới mắt.</span></li>
+          </ul>
+        </div>
+
+        <div class="glass refractive p-6">
+          <p class="text-[11px] uppercase tracking-[0.18em] opacity-55 font-semibold">Hoạt chất gợi ý</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <span class="chip">Niacinamide (B3)</span>
+            <span class="chip">Hyaluronic Acid</span>
+            <span class="chip">Ceramides</span>
+            <span class="chip">Madecassoside</span>
+            <span class="chip">Panthenol (B5)</span>
+            <span class="chip">Vitamin C</span>
+          </div>
+          <div class="mt-5 score-track"><div class="score-fill" style="width:78%;"></div></div>
+          <p class="text-[11px] opacity-60 mt-2">Độ khớp hoạt chất · <b>78%</b></p>
+        </div>
+      </div>
+
+      <!-- AM / PM routines -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="glass refractive p-6 relative overflow-hidden">
+          <div class="absolute -top-4 -right-4 w-24 h-24 rounded-full opacity-60"
+               style="background:radial-gradient(circle, rgb(var(--tint-peach)), transparent 70%);"></div>
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <h4 class="font-semibold">Quy trình buổi sáng · 4 bước</h4>
+          </div>
+          <ol class="text-[13.5px] space-y-2 text-[#1f2538]/85">
+            <li><b>01</b> · Sữa rửa mặt dịu nhẹ (amino)</li>
+            <li><b>02</b> · Serum Niacinamide + HA</li>
+            <li><b>03</b> · Kem dưỡng hàng rào (Ceramides)</li>
+            <li><b>04</b> · Kem chống nắng SPF 50</li>
+          </ol>
+        </div>
+
+        <div class="glass refractive p-6 relative overflow-hidden">
+          <div class="absolute -top-4 -right-4 w-24 h-24 rounded-full opacity-60"
+               style="background:radial-gradient(circle, rgb(var(--tint-blue)), transparent 70%);"></div>
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 13a9 9 0 1 1-10-10 7 7 0 0 0 10 10z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            <h4 class="font-semibold">Quy trình buổi tối · 5 bước</h4>
+          </div>
+          <ol class="text-[13.5px] space-y-2 text-[#1f2538]/85">
+            <li><b>01</b> · Tẩy trang dầu (Squalane)</li>
+            <li><b>02</b> · Sữa rửa mặt amino</li>
+            <li><b>03</b> · Salicylic Acid (BHA) — xen kẽ</li>
+            <li><b>04</b> · Tinh chất cấp ẩm (HA)</li>
+            <li><b>05</b> · Kem khoá ẩm ban đêm</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Product tier cards -->
+      <div class="glass refractive p-6">
+        <div class="flex items-baseline justify-between mb-1 flex-wrap gap-2">
+          <h3 class="font-semibold text-[17px]">Gợi ý sản phẩm theo phân khúc · Kem dưỡng</h3>
+          <span class="text-[12px] opacity-60">3 phân khúc · công bố tiếp thị liên kết</span>
+        </div>
+        <p class="text-[12.5px] text-[#1f2538]/60 mb-4">Được gợi ý dựa trên các thành phần hoạt chất (lựa chọn minh hoạ).</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- BUDGET — Giá rẻ -->
+          <div class="glass-mid refractive p-4 relative overflow-hidden" style="border-radius:1.75rem;">
+            <span class="chip absolute top-3 right-3" style="background:rgba(176,240,220,.5);">Giá rẻ</span>
+            <div class="h-28 rounded-2xl mb-3"
+                 style="background:linear-gradient(160deg, rgb(var(--tint-mint)), rgb(var(--tint-blue))); box-shadow:inset 0 1px 0 rgba(255,255,255,.7);">
+              <div class="w-full h-full grid place-items-center">
+                <div class="w-14 h-20 rounded-xl"
+                     style="background:linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.4)); box-shadow:0 6px 14px rgba(80,40,120,.15);"></div>
+              </div>
+            </div>
+            <p class="text-[11px] opacity-60 uppercase tracking-widest">CeraVe</p>
+            <p class="text-[14px] font-semibold leading-snug mt-0.5">Daily Moisturizing Lotion</p>
+            <div class="mt-3 flex items-center justify-between">
+              <p class="text-[15px] font-semibold tabular-nums">₫320.000</p>
+              <button class="frost-btn px-3 py-1.5 text-[12px]">Xem giá →</button>
+            </div>
+          </div>
+
+          <!-- MID — Tầm trung (featured) -->
+          <div class="glass-dark refractive p-4 relative overflow-hidden float-y" style="border-radius:1.75rem;">
+            <span class="chip absolute top-3 right-3" style="background:rgba(255,255,255,.25); color:#fff;">Tầm trung · gợi ý chính</span>
+            <div class="h-28 rounded-2xl mb-3"
+                 style="background:linear-gradient(160deg, rgb(var(--tint-pink)), rgb(var(--tint-peach))); box-shadow:inset 0 1px 0 rgba(255,255,255,.7);">
+              <div class="w-full h-full grid place-items-center">
+                <div class="w-14 h-20 rounded-xl"
+                     style="background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.4)); box-shadow:0 6px 14px rgba(80,40,120,.2);"></div>
+              </div>
+            </div>
+            <p class="text-[11px] opacity-60 uppercase tracking-widest">Dr. Jart+</p>
+            <p class="text-[14px] font-semibold leading-snug mt-0.5">Ceramidin Cream</p>
+            <div class="mt-3 flex items-center justify-between">
+              <p class="text-[15px] font-semibold tabular-nums">₫1.150.000</p>
+              <button class="frost-btn px-3 py-1.5 text-[12px]" style="background:rgba(255,255,255,.92); color:#1f2538;">Xem giá →</button>
+            </div>
+          </div>
+
+          <!-- PREMIUM — Cao cấp -->
+          <div class="glass-mid refractive p-4 relative overflow-hidden" style="border-radius:1.75rem;">
+            <span class="chip absolute top-3 right-3" style="background:rgba(212,175,55,.4); color:#6b4a00;">Cao cấp</span>
+            <div class="h-28 rounded-2xl mb-3"
+                 style="background:linear-gradient(160deg, rgb(var(--tint-peach)), rgb(var(--tint-pink))); box-shadow:inset 0 1px 0 rgba(255,255,255,.7);">
+              <div class="w-full h-full grid place-items-center">
+                <div class="w-14 h-20 rounded-xl"
+                     style="background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.4)); box-shadow:0 6px 14px rgba(80,40,120,.2);"></div>
+              </div>
+            </div>
+            <p class="text-[11px] opacity-60 uppercase tracking-widest">La Mer</p>
+            <p class="text-[14px] font-semibold leading-snug mt-0.5">Crème de la Mer</p>
+            <div class="mt-3 flex items-center justify-between">
+              <p class="text-[15px] font-semibold tabular-nums">₫4.800.000</p>
+              <button class="frost-btn px-3 py-1.5 text-[12px]">Xem giá →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== FOOTER DISCLOSURE ========== -->
+  <section class="glass refractive p-6 flex flex-col md:flex-row items-start md:items-center gap-4 justify-between">
+    <div class="flex items-start gap-3 max-w-[62ch]">
+      <div class="w-8 h-8 rounded-2xl grid place-items-center shrink-0"
+           style="background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.7);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3l9 16H3L12 3z" stroke="#1f2538" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4M12 17h.01" stroke="#1f2538" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </div>
+      <p class="text-[12.5px] text-[#1f2538]/75 leading-relaxed">
+        <b>Miễn trừ trách nhiệm y tế.</b> Casa Mika chỉ cung cấp kiến thức
+        chăm sóc da tổng quát, không thay thế cho chẩn đoán hoặc điều trị y
+        tế. Luôn tham khảo ý kiến bác sĩ da liễu cho các vấn đề kéo dài. Một
+        số liên kết sản phẩm là liên kết tiếp thị — chúng tôi có thể nhận hoa
+        hồng từ giao dịch đủ điều kiện.
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="frost-btn px-4 py-2 text-[12.5px]">Lưu PDF</button>
+      <button class="frost-btn primary px-4 py-2 text-[12.5px]">Quét lại sau 14 ngày</button>
+    </div>
+  </section>
+</main>
+
+<!-- ============================================================
+     FLOATING ACTION DOCK (bottom control-center)
+     ============================================================ -->
+<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+  <div class="glass-dark refractive flex items-center gap-2 px-3 py-2" style="border-radius:999px;">
+    <button class="frost-btn px-3 py-2" title="Quét da" style="background:rgba(255,255,255,.92); color:#1f2538;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-3h6l2 3h3v12H4V7z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="1.7"/></svg>
+    </button>
+    <button class="px-3 py-2 rounded-full text-white/90 hover:bg-white/20 transition" title="Lịch sử">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 0 3-6.7M3 5v4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 8v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+    <button class="px-3 py-2 rounded-full text-white/90 hover:bg-white/20 transition" title="Quy trình">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+    <button class="px-3 py-2 rounded-full text-white/90 hover:bg-white/20 transition" title="Gợi ý sản phẩm">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 7h12l-1 12H7L6 7zM9 7V5a3 3 0 1 1 6 0v2" stroke="currentColor" stroke-width="1.7"/></svg>
+    </button>
+    <div class="w-px h-6 bg-white/20 mx-1"></div>
+    <button class="px-3 py-2 rounded-full text-white/90 hover:bg-white/20 transition" title="Hồ sơ">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.7"/><path d="M4 21c1-4 5-6 8-6s7 2 8 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+  // ============================================================
+  // Framer Motion — Elastic Bounce on the Result dashboard
+  // (also replayed on scroll-into-view for demo purposes)
+  // ============================================================
+  if (window.Motion && window.Motion.animate) {
+    const { animate, inView } = window.Motion;
+
+    // Replay elastic bounce when results re-enter viewport
+    const results = document.querySelector('.elastic-in');
+    if (results) {
+      inView(results, () => {
+        animate(results,
+          { opacity: [0, 1], scale: [0.7, 1.04, 0.98, 1], y: [40, -8, 3, 0] },
+          { duration: 0.95, easing: [0.35, 1.6, 0.4, 1] }
+        );
+      }, { amount: 0.2 });
+    }
+
+    // Gentle parallax on mesh blobs following cursor — subtle 'liquid' feel
+    const blobs = document.querySelectorAll('.mesh-blob');
+    window.addEventListener('mousemove', (e) => {
+      const cx = e.clientX / window.innerWidth - 0.5;
+      const cy = e.clientY / window.innerHeight - 0.5;
+      blobs.forEach((b, i) => {
+        const depth = (i + 1) * 10;
+        b.style.marginLeft = (cx * depth) + 'px';
+        b.style.marginTop  = (cy * depth) + 'px';
+      });
+    });
+
+    // Press-in micro-interaction for every .frost-btn
+    document.querySelectorAll('.frost-btn').forEach(btn => {
+      btn.addEventListener('pointerdown', () => {
+        animate(btn, { scale: 0.96 }, { duration: 0.12 });
+      });
+      btn.addEventListener('pointerup', () => {
+        animate(btn, { scale: 1 }, { duration: 0.22, easing: [0.35, 1.6, 0.4, 1] });
+      });
+      btn.addEventListener('pointerleave', () => {
+        animate(btn, { scale: 1 }, { duration: 0.22 });
+      });
+    });
+  }
+</script>
+
+</body>
+</html>
