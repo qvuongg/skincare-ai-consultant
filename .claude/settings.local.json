@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npx tsc *)",
       "Bash(npx eslint *)",
-      "Bash(find /Users/buiquocvuong/Projects/skincare-ai-consultant/src/lib/translations* -type f)"
+      "Bash(find /Users/buiquocvuong/Projects/skincare-ai-consultant/src/lib/translations* -type f)",
+      "Bash(npm run *)"
     ]
   }
 }
