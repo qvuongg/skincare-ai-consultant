@@ -70,3 +70,23 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Safe-area utilities — pad against iOS notch / home indicator without */
+/* relying on Tailwind plugins. */
+@utility pt-safe {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+@utility pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+@utility px-safe {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+/* Disable iOS double-tap-to-zoom and "tap highlight" inside the onboarding */
+/* surface so glass buttons feel native. */
+.onboarding-shell {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}

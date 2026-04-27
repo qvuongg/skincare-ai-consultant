@@ -80,7 +80,7 @@ export function GoalCard({
             : "0 14px 40px rgba(31, 38, 135, 0.10), inset 0 1px 0 rgba(255,255,255,0.65), inset 0 -1px 0 rgba(255,255,255,0.25)",
         }}
         transition={{ type: "spring", stiffness: 280, damping: 22 }}
-        className="relative isolate overflow-hidden p-6 sm:p-7"
+        className="relative isolate overflow-hidden p-5 sm:p-6"
         style={{
           borderRadius: "2rem",
           background: `linear-gradient(135deg, ${tokens.tint} 0%, rgba(255,255,255,0.55) 60%, rgba(255,255,255,0.35) 100%)`,
@@ -134,18 +134,18 @@ export function GoalCard({
           }}
         />
 
-        <div className="relative z-10 flex items-center gap-5">
+        <div className="relative z-10 flex items-center gap-4">
           <motion.span
             animate={{ rotate: selected ? -6 : 0, scale: selected ? 1.05 : 1 }}
             transition={{ type: "spring", stiffness: 380, damping: 14 }}
-            className="flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]"
+            className="flex size-12 shrink-0 items-center justify-center rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] sm:size-14"
             style={{
               background: tokens.iconBg,
               color: tokens.iconFg,
               border: "1px solid rgba(255,255,255,0.55)",
             }}
           >
-            <Icon className="size-6" strokeWidth={2.2} />
+            <Icon className="size-[22px] sm:size-6" strokeWidth={2.2} />
           </motion.span>
 
           <div className="flex-1 min-w-0">
@@ -156,12 +156,12 @@ export function GoalCard({
               {tagline}
             </p>
             <h3
-              className="mt-1 text-xl font-semibold tracking-tight sm:text-[22px]"
+              className="mt-1 text-[18px] font-semibold tracking-tight sm:text-[22px]"
               style={{ color: tokens.titleColor }}
             >
               {title}
             </h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-foreground/65">
+            <p className="mt-1 text-[13px] leading-snug text-foreground/65 sm:text-sm">
               {description}
             </p>
           </div>

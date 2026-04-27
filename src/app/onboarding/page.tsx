@@ -1,211 +1,301 @@
 "use client";
 
-import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Droplets,
-  ShieldCheck,
-  Zap,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { GoalCard, type GoalTone } from "@/components/onboarding/goal-card";
-import { MeshGradient } from "@/components/onboarding/mesh-gradient";
-import {
-  StepSidebar,
-  StepSidebarMobile,
-} from "@/components/onboarding/step-sidebar";
+import { useCallback, useState } from "react";
 
-const STEP_KEYS = ["goal", "skin", "lifestyle", "scan", "review"] as const;
+import { MeshGradient } from "@/components/onboarding/mesh-gradient";
+import { ProgressPillBar } from "@/components/onboarding/progress-pill-bar";
+import { StepGoal } from "@/components/onboarding/step-goal";
+import {
+  StepLifestyle,
+  type LifestyleData,
+} from "@/components/onboarding/step-lifestyle";
+import { StepName } from "@/components/onboarding/step-name";
+import { StepPhotoScan } from "@/components/onboarding/step-photo-scan";
+import {
+  StepReview,
+  type AnalysisResult,
+} from "@/components/onboarding/step-review";
+import { StepSkinType } from "@/components/onboarding/step-skin-type";
+import { compressImage } from "@/lib/image/compress";
+
+const STEP_KEYS = [
+  "goal",
+  "name",
+  "skin",
+  "lifestyle",
+  "photo",
+  "review",
+] as const;
 type StepKey = (typeof STEP_KEYS)[number];
 
-type GoalDef = {
-  id: string;
-  tone: GoalTone;
-  tagline: string;
-  title: string;
-  description: string;
-  icon: typeof Zap;
+const MIN_ANALYZING_MS = 4000;
+
+type FormData = {
+  primary_goal: string | null;
+  user_name: string;
+  skin_type: string | null;
+  lifestyle: LifestyleData;
 };
 
-const GOALS: GoalDef[] = [
-  {
-    id: "clear_acne",
-    tone: "purple",
-    tagline: "Clarity Protocol",
-    title: "Clear Acne",
-    description:
-      "Calm active breakouts, fade post-acne marks, and restore an even surface.",
-    icon: Zap,
+const INITIAL: FormData = {
+  primary_goal: null,
+  user_name: "",
+  skin_type: null,
+  lifestyle: {
+    location: null,
+    uv_index: null,
+    humidity: null,
+    water_liters: 1.5,
+    sleep_hours: 7,
   },
-  {
-    id: "anti_aging",
-    tone: "blue",
-    tagline: "Longevity Ritual",
-    title: "Anti-Aging",
-    description:
-      "Soften fine lines, support collagen, and rebuild firmness over time.",
-    icon: ShieldCheck,
-  },
-  {
-    id: "hydration",
-    tone: "green",
-    tagline: "Moisture Lock",
-    title: "Deep Hydration",
-    description:
-      "Replenish the moisture barrier and restore that healthy, dewy bounce.",
-    icon: Droplets,
-  },
-];
+};
 
-const GLASS_PANEL: React.CSSProperties = {
-  borderRadius: "2rem",
-  background: "rgba(255, 255, 255, 0.40)",
-  backdropFilter: "blur(40px) saturate(180%)",
-  WebkitBackdropFilter: "blur(40px) saturate(180%)",
-  border: "1px solid rgba(255, 255, 255, 0.55)",
-  boxShadow:
-    "0 24px 80px rgba(31, 38, 135, 0.12), inset 0 1px 0 rgba(255,255,255,0.75)",
+// iOS 26 "elastic bounce" — a stiff spring with low damping.
+const PAGE_TRANSITION = {
+  type: "spring" as const,
+  stiffness: 380,
+  damping: 28,
+  mass: 0.9,
 };
 
 export default function OnboardingPage() {
   const [stepIndex, setStepIndex] = useState(0);
-  const [goalId, setGoalId] = useState<string | null>(null);
+  const [data, setData] = useState<FormData>(INITIAL);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
+    null
+  );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const stepKey: StepKey = STEP_KEYS[stepIndex];
-  const goNext = () =>
-    setStepIndex((s) => Math.min(s + 1, STEP_KEYS.length - 1));
-  const goBack = () => setStepIndex((s) => Math.max(s - 1, 0));
+  const next = useCallback(
+    () => setStepIndex((s) => Math.min(s + 1, STEP_KEYS.length - 1)),
+    []
+  );
+  const back = useCallback(
+    () => setStepIndex((s) => Math.max(s - 1, 0)),
+    []
+  );
+
+  const submitOnboarding = useCallback((d: FormData) => {
+    const payload = {
+      user_name: d.user_name,
+      name: d.user_name,
+      primary_goal: d.primary_goal ?? "Chưa chọn",
+      skin_type_detected: d.skin_type ?? "Chưa phân loại",
+      contact_info: "Chưa cung cấp",
+      location: d.lifestyle.location,
+      weather_context:
+        d.lifestyle.uv_index !== null
+          ? {
+              uv_index: d.lifestyle.uv_index,
+              humidity: d.lifestyle.humidity ?? 0,
+            }
+          : null,
+      habits: {
+        water: d.lifestyle.water_liters >= 1.5 ? "normal" : "low",
+        sleep: d.lifestyle.sleep_hours >= 7 ? "enough" : "late",
+        water_liters: d.lifestyle.water_liters,
+        sleep_hours: d.lifestyle.sleep_hours,
+      },
+      raw_data: d,
+    };
+    // Fire-and-forget — Supabase failures shouldn't block the UX.
+    void fetch("/api/onboarding", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch((e) => console.error("onboarding save failed", e));
+  }, []);
+
+  const runAnalysis = useCallback(
+    async (file: File, snapshot: FormData) => {
+      setAnalysisError(null);
+      setAnalysisResult(null);
+      setAnalysisLoading(true);
+      const start = Date.now();
+
+      try {
+        // Reuse compression pipeline from Task 7 — 2K, JPEG q=0.9.
+        const compressed = await compressImage(file, {
+          maxWidth: 2048,
+          quality: 0.9,
+        });
+        const dataUrl = `data:${compressed.mimeType};base64,${compressed.base64}`;
+        setPreviewUrl(dataUrl);
+
+        const onboardingContext = {
+          user_name: snapshot.user_name,
+          primary_goal: snapshot.primary_goal,
+          skin_type_self_reported: snapshot.skin_type,
+          location: snapshot.lifestyle.location,
+          weather_context:
+            snapshot.lifestyle.uv_index !== null
+              ? {
+                  uv_index: snapshot.lifestyle.uv_index,
+                  humidity: snapshot.lifestyle.humidity ?? 0,
+                }
+              : null,
+          habits: {
+            water:
+              snapshot.lifestyle.water_liters >= 1.5 ? "normal" : "low",
+            sleep:
+              snapshot.lifestyle.sleep_hours >= 7 ? "enough" : "late",
+            water_liters: snapshot.lifestyle.water_liters,
+            sleep_hours: snapshot.lifestyle.sleep_hours,
+          },
+        };
+
+        const res = await fetch("/api/analyze-skin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image: {
+              mimeType: compressed.mimeType,
+              data: compressed.base64,
+            },
+            onboardingContext,
+          }),
+        });
+
+        const payload: unknown = await res.json();
+        if (!res.ok) {
+          const msg =
+            typeof payload === "object" &&
+            payload !== null &&
+            "error" in payload &&
+            typeof (payload as { error: unknown }).error === "string"
+              ? (payload as { error: string }).error
+              : "Mika không đọc được ảnh, thử lại nha.";
+          throw new Error(msg);
+        }
+
+        // Hold the labor-illusion long enough for at least one phrase sweep.
+        const elapsed = Date.now() - start;
+        if (elapsed < MIN_ANALYZING_MS) {
+          await new Promise((r) => setTimeout(r, MIN_ANALYZING_MS - elapsed));
+        }
+
+        setAnalysisResult(payload as AnalysisResult);
+      } catch (e) {
+        setAnalysisError(
+          e instanceof Error
+            ? e.message
+            : "Có lỗi xảy ra trong quá trình phân tích."
+        );
+      } finally {
+        setAnalysisLoading(false);
+      }
+    },
+    []
+  );
+
+  const handleCapture = useCallback(
+    (file: File) => {
+      const snapshot = data;
+      submitOnboarding(snapshot);
+      setStepIndex(STEP_KEYS.indexOf("review"));
+      void runAnalysis(file, snapshot);
+    },
+    [data, submitOnboarding, runAnalysis]
+  );
+
+  const restartScan = useCallback(() => {
+    setAnalysisResult(null);
+    setAnalysisError(null);
+    setAnalysisLoading(false);
+    setPreviewUrl(null);
+    setStepIndex(STEP_KEYS.indexOf("photo"));
+  }, []);
+
+  const canBack = stepIndex > 0 && !analysisLoading;
 
   return (
-    <div className="relative min-h-dvh">
+    <div
+      className="onboarding-shell relative flex min-h-dvh flex-col"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       <MeshGradient />
 
-      <main className="mx-auto flex min-h-dvh w-full max-w-[1280px] flex-col gap-4 px-4 py-6 sm:px-6 sm:py-8 lg:flex-row lg:gap-6 lg:px-10 lg:py-10">
-        <StepSidebarMobile current={stepIndex} />
-        <StepSidebar current={stepIndex} />
+      <header className="sticky top-0 z-30 px-4 pt-3 pb-2 sm:px-5">
+        <ProgressPillBar
+          current={stepIndex}
+          total={STEP_KEYS.length}
+          canBack={canBack}
+          onBack={back}
+        />
+      </header>
 
-        <section
-          className="relative z-10 flex flex-1 flex-col overflow-hidden p-6 sm:p-8 lg:p-12"
-          style={GLASS_PANEL}
-        >
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-12 top-0 h-px"
-            style={{
-              background:
-                "linear-gradient(90deg, transparent, rgba(255,255,255,0.95), transparent)",
-            }}
-          />
-
-          <AnimatePresence mode="wait">
-            {stepKey === "goal" ? (
-              <motion.div
-                key="goal-step"
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -24 }}
-                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                className="flex flex-1 flex-col"
-              >
-                <header className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/60 bg-white/55 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-foreground/65 backdrop-blur">
-                      <span className="size-1.5 rounded-full bg-foreground/70" />
-                      Step 01 · Goal
-                    </span>
-                  </div>
-                  <h2 className="max-w-xl text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-[34px] sm:leading-[1.1]">
-                    What&apos;s the result you&apos;d like to see first?
-                  </h2>
-                  <p className="max-w-md text-sm leading-relaxed text-foreground/65 sm:text-[15px]">
-                    Pick the outcome that would change how you feel about your
-                    skin today. We&apos;ll tune every recommendation around it.
-                  </p>
-                </header>
-
-                <div className="relative mt-8 flex flex-1 flex-col gap-4 sm:gap-5">
-                  {GOALS.map((g, idx) => (
-                    <motion.div
-                      key={g.id}
-                      initial={{ opacity: 0, y: 18 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        delay: 0.08 + idx * 0.08,
-                        duration: 0.5,
-                        ease: [0.22, 1, 0.36, 1],
-                      }}
-                      style={{ zIndex: GOALS.length - idx }}
-                    >
-                      <GoalCard
-                        tone={g.tone}
-                        tagline={g.tagline}
-                        title={g.title}
-                        description={g.description}
-                        icon={g.icon}
-                        selected={goalId === g.id}
-                        onSelect={() => setGoalId(g.id)}
-                      />
-                    </motion.div>
-                  ))}
-                </div>
-
-                <footer className="mt-10 flex flex-col-reverse items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-foreground/50">
-                    You can refine your goal later in your dashboard.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="lg"
-                      variant="ghost"
-                      disabled
-                      className="rounded-full"
-                    >
-                      <ArrowLeft className="size-4" /> Back
-                    </Button>
-                    <Button
-                      size="lg"
-                      onClick={goNext}
-                      disabled={!goalId}
-                      className="rounded-full bg-foreground text-background hover:bg-foreground/85"
-                    >
-                      Continue <ArrowRight className="size-4" />
-                    </Button>
-                  </div>
-                </footer>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="placeholder-step"
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -24 }}
-                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                className="flex flex-1 flex-col items-center justify-center gap-4 text-center"
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-foreground/55">
-                  Step {String(stepIndex + 1).padStart(2, "0")}
-                </span>
-                <h2 className="text-3xl font-semibold tracking-tight text-foreground">
-                  Coming up next
-                </h2>
-                <p className="max-w-sm text-sm text-foreground/60">
-                  This step is being designed. Step 1 — Goal — is the focus of
-                  this build.
-                </p>
-                <Button
-                  size="lg"
-                  variant="ghost"
-                  onClick={goBack}
-                  className="mt-2 rounded-full"
-                >
-                  <ArrowLeft className="size-4" /> Back to goal
-                </Button>
-              </motion.div>
+      <main
+        className="relative z-10 flex flex-1 flex-col px-4 pt-4 sm:px-5"
+        style={{
+          paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+        }}
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={stepKey}
+            initial={{ opacity: 0, y: 24, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -16, scale: 0.99 }}
+            transition={PAGE_TRANSITION}
+            className="flex flex-1 flex-col"
+          >
+            {stepKey === "goal" && (
+              <StepGoal
+                value={data.primary_goal}
+                onChange={(id) =>
+                  setData((d) => ({ ...d, primary_goal: id }))
+                }
+                onNext={next}
+              />
             )}
-          </AnimatePresence>
-        </section>
+            {stepKey === "name" && (
+              <StepName
+                value={data.user_name}
+                onChange={(name) =>
+                  setData((d) => ({ ...d, user_name: name }))
+                }
+                onNext={next}
+              />
+            )}
+            {stepKey === "skin" && (
+              <StepSkinType
+                value={data.skin_type}
+                onChange={(id) => setData((d) => ({ ...d, skin_type: id }))}
+                onNext={next}
+              />
+            )}
+            {stepKey === "lifestyle" && (
+              <StepLifestyle
+                value={data.lifestyle}
+                onChange={(lifestyle) =>
+                  setData((d) => ({ ...d, lifestyle }))
+                }
+                onNext={next}
+              />
+            )}
+            {stepKey === "photo" && (
+              <StepPhotoScan onCapture={handleCapture} />
+            )}
+            {stepKey === "review" && (
+              <StepReview
+                loading={analysisLoading}
+                error={analysisError}
+                result={analysisResult}
+                userName={data.user_name}
+                primaryGoal={data.primary_goal}
+                location={data.lifestyle.location}
+                sleepHours={data.lifestyle.sleep_hours}
+                waterLiters={data.lifestyle.water_liters}
+                previewUrl={previewUrl}
+                onRetry={restartScan}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
   );
