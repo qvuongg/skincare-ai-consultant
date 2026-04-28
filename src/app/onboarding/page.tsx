@@ -213,28 +213,34 @@ export default function OnboardingPage() {
   const canBack = stepIndex > 0 && !analysisLoading;
 
   return (
-    <div
-      className="onboarding-shell relative flex min-h-dvh flex-col"
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <div className="onboarding-shell relative flex min-h-dvh flex-col">
       <MeshGradient />
 
-      <header className="sticky top-0 z-30 px-4 pt-3 pb-2 sm:px-5">
-        <ProgressPillBar
-          current={stepIndex}
-          total={STEP_KEYS.length}
-          canBack={canBack}
-          onBack={back}
-        />
-      </header>
-
-      <main
-        className="relative z-10 flex flex-1 flex-col px-4 pt-4 sm:px-5"
-        style={{
-          paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
-        }}
+      {/* App-shell: centered phone-width column on desktop, full-bleed on */}
+      {/* mobile. Mesh gradient stays full-screen behind it. */}
+      <div
+        className="relative z-10 mx-auto flex w-full max-w-[480px] flex-1 flex-col"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        <AnimatePresence mode="wait">
+        <header
+          className="sticky z-30 px-5 pt-3 pb-2 sm:px-6"
+          style={{ top: "env(safe-area-inset-top)" }}
+        >
+          <ProgressPillBar
+            current={stepIndex}
+            total={STEP_KEYS.length}
+            canBack={canBack}
+            onBack={back}
+          />
+        </header>
+
+        <main
+          className="flex flex-1 flex-col px-5 pt-4 sm:px-6"
+          style={{
+            paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+          }}
+        >
+          <AnimatePresence mode="wait">
           <motion.div
             key={stepKey}
             initial={{ opacity: 0, y: 24, scale: 0.985 }}
@@ -296,7 +302,8 @@ export default function OnboardingPage() {
             )}
           </motion.div>
         </AnimatePresence>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
