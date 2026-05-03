@@ -18,7 +18,7 @@ export function StepName({ value, onChange, onNext }: Props) {
       <header className="space-y-2">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-white/55 bg-white/55 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/60 backdrop-blur">
           <span className="size-1.5 rounded-full bg-foreground/70" />
-          Bước 02 · Name
+          Bước 06 · Name
         </span>
         <h1 className="text-balance text-[28px] font-semibold leading-[1.1] tracking-tight text-foreground">
           Casa Mika gọi bạn là gì nhỉ?

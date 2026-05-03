@@ -6,6 +6,10 @@ import { cn } from "@/lib/utils";
 
 const STEP_LABELS = [
   "Mục tiêu",
+  "Ăn uống",
+  "Môi trường",
+  "Ngân sách",
+  "Tuổi",
   "Tên",
   "Loại da",
   "Lifestyle",

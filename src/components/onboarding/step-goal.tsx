@@ -41,13 +41,28 @@ const GOALS: GoalDef[] = [
   },
 ];
 
+// id → user-facing label for downstream contexts (Supabase lead, Gemini prompt).
+export const GOAL_LABELS: Record<string, string> = Object.fromEntries(
+  GOALS.map((g) => [g.id, g.tagline])
+);
+
 type Props = {
-  value: string | null;
-  onChange: (id: string) => void;
+  value: string[];
+  onChange: (next: string[]) => void;
   onNext: () => void;
 };
 
 export function StepGoal({ value, onChange, onNext }: Props) {
+  const toggle = (id: string) => {
+    if (value.includes(id)) {
+      onChange(value.filter((v) => v !== id));
+    } else {
+      onChange([...value, id]);
+    }
+  };
+
+  const canContinue = value.length > 0;
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="space-y-2">
@@ -59,12 +74,16 @@ export function StepGoal({ value, onChange, onNext }: Props) {
           Glow-up goal của bạn là gì?
         </h1>
         <p className="text-[14px] leading-relaxed text-foreground/65">
-          Chọn 1 mục tiêu khiến bạn excited nhất — Mika sẽ build routine xoay
-          quanh nó.
+          Chọn 1 hoặc nhiều mục tiêu — Mika sẽ kết hợp chúng vào một routine
+          thống nhất 💆‍♀️
         </p>
       </header>
 
-      <div className="mt-6 flex flex-col gap-3.5">
+      <div
+        role="group"
+        aria-label="Mục tiêu skincare"
+        className="mt-6 flex flex-col gap-3.5"
+      >
         {GOALS.map((g, idx) => (
           <motion.div
             key={g.id}
@@ -83,8 +102,8 @@ export function StepGoal({ value, onChange, onNext }: Props) {
               title={g.title}
               description={g.description}
               icon={g.icon}
-              selected={value === g.id}
-              onSelect={() => onChange(g.id)}
+              selected={value.includes(g.id)}
+              onSelect={() => toggle(g.id)}
             />
           </motion.div>
         ))}
@@ -93,11 +112,14 @@ export function StepGoal({ value, onChange, onNext }: Props) {
       <footer className="mt-auto flex flex-col gap-2 pt-8">
         <Button
           size="lg"
-          disabled={!value}
+          disabled={!canContinue}
           onClick={onNext}
           className="h-14 w-full rounded-full bg-foreground text-base font-semibold text-background hover:bg-foreground/85"
         >
-          Tiếp tục <ArrowRight className="size-4" />
+          {canContinue
+            ? `Đã chọn ${value.length} mục tiêu, đi tiếp`
+            : "Chọn ít nhất 1 mục tiêu"}
+          <ArrowRight className="size-4" />
         </Button>
         <p className="text-center text-[11px] text-foreground/45">
           Đổi mục tiêu bất cứ lúc nào trên dashboard nha.

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight, type LucideIcon } from "lucide-react";
+import { ArrowRight, Check, type LucideIcon } from "lucide-react";
 
 export type GoalTone = "purple" | "blue" | "green";
 
@@ -65,8 +65,9 @@ export function GoalCard({
   return (
     <motion.button
       type="button"
+      role="checkbox"
       onClick={onSelect}
-      aria-pressed={selected}
+      aria-checked={selected}
       whileHover={{ scale: 1.012, y: -3 }}
       whileTap={{ scale: 0.985 }}
       transition={{ type: "spring", stiffness: 420, damping: 16, mass: 0.8 }}
@@ -169,10 +170,10 @@ export function GoalCard({
           <motion.span
             aria-hidden
             animate={{
-              x: selected ? 4 : 0,
+              scale: selected ? 1.05 : 1,
               opacity: selected ? 1 : 0.5,
             }}
-            transition={{ type: "spring", stiffness: 400, damping: 22 }}
+            transition={{ type: "spring", stiffness: 400, damping: 18 }}
             className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/65"
             style={{
               background: selected ? tokens.iconFg : "rgba(255,255,255,0.55)",
@@ -182,7 +183,11 @@ export function GoalCard({
                 : "0 4px 12px rgba(31,38,135,0.08)",
             }}
           >
-            <ArrowRight className="size-4" />
+            {selected ? (
+              <Check className="size-4" strokeWidth={3} />
+            ) : (
+              <ArrowRight className="size-4" />
+            )}
           </motion.span>
         </div>
       </motion.div>

@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import {
   ArrowRight,
+  Dumbbell,
   Droplets,
   Moon,
   Loader2,
@@ -11,7 +12,10 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ControlCenterSlider } from "@/components/onboarding/control-center-slider";
+import {
+  LiquidGlassSlider,
+  type SliderVibe,
+} from "@/components/onboarding/liquid-glass-slider";
 
 export type LifestyleData = {
   location: string | null;
@@ -19,7 +23,29 @@ export type LifestyleData = {
   humidity: number | null;
   water_liters: number;
   sleep_hours: number;
+  exercise_sessions: number;
 };
+
+function waterVibe(l: number): SliderVibe {
+  if (l < 1) return { label: "Da đang khát nước, nạp thêm đi", emoji: "💦" };
+  if (l < 1.5) return { label: "Tạm ổn, ráng thêm 1 chai nữa", emoji: "🥤" };
+  if (l < 2.25) return { label: "Đủ chuẩn, da bouncy như jelly", emoji: "💧" };
+  return { label: "Hydration goddess — chuẩn level pro", emoji: "🌊" };
+}
+
+function sleepVibe(h: number): SliderVibe {
+  if (h < 6) return { label: "Cú đêm chính hiệu — da dễ xỉn", emoji: "🌙" };
+  if (h < 7) return { label: "Hơi thiếu, mai cố ngủ sớm hơn nhé", emoji: "😴" };
+  if (h < 8.5) return { label: "Vừa đẹp, glow tự nhiên", emoji: "🛏️" };
+  return { label: "Sleeping beauty mode activated", emoji: "✨" };
+}
+
+function exerciseVibe(n: number): SliderVibe {
+  if (n <= 0) return { label: "Đang tạm nghỉ ngơi", emoji: "🛋️" };
+  if (n <= 3) return { label: "Có vận động nhẹ nhàng", emoji: "🚶" };
+  if (n <= 5) return { label: "Rất năng suất!", emoji: "🏃‍♂️" };
+  return { label: "Chiến thần thể thao", emoji: "🏋️‍♀️" };
+}
 
 type Props = {
   value: LifestyleData;
@@ -144,17 +170,17 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
       <header className="space-y-2">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-white/55 bg-white/55 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/60 backdrop-blur">
           <span className="size-1.5 rounded-full bg-foreground/70" />
-          Bước 04 · Lifestyle
+          Bước 08 · Lifestyle
         </span>
         <h1 className="text-balance text-[28px] font-semibold leading-[1.1] tracking-tight text-foreground">
           Check nhanh nhịp sống thường ngày…
         </h1>
         <p className="text-[14px] leading-relaxed text-foreground/65">
-          Mika cần 3 tín hiệu sau để hiểu da bạn đang sống trong môi trường nào.
+          Mika cần 4 tín hiệu sau để hiểu da bạn đang sống trong môi trường nào.
         </p>
       </header>
 
-      <div className="mt-6 flex flex-col gap-3.5">
+      <div className="mt-6 flex flex-col gap-5">
         <motion.section
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -262,12 +288,12 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="space-y-2"
+          className="space-y-2.5"
         >
           <p className="px-1 text-[14px] font-semibold tracking-tight text-foreground">
             Hôm nay uống bao nhiêu lít nước?
           </p>
-          <ControlCenterSlider
+          <LiquidGlassSlider
             value={value.water_liters}
             onChange={(n) => onChange({ ...value, water_liters: n })}
             min={0}
@@ -277,7 +303,9 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
             label="Lượng nước"
             display={`${value.water_liters.toFixed(2).replace(/\.?0+$/, "")} L`}
             fillFrom="rgba(125, 211, 252, 0.55)"
-            fillTo="rgba(59, 130, 246, 0.55)"
+            fillTo="rgba(59, 130, 246, 0.65)"
+            iconTint="rgba(186, 230, 253, 0.7)"
+            vibe={waterVibe(value.water_liters)}
           />
         </motion.section>
 
@@ -285,12 +313,12 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.16, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="space-y-2"
+          className="space-y-2.5"
         >
           <p className="px-1 text-[14px] font-semibold tracking-tight text-foreground">
             Số tiếng ngủ trung bình?
           </p>
-          <ControlCenterSlider
+          <LiquidGlassSlider
             value={value.sleep_hours}
             onChange={(n) => onChange({ ...value, sleep_hours: n })}
             min={4}
@@ -300,7 +328,40 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
             label="Giấc ngủ"
             display={`${value.sleep_hours.toFixed(1).replace(/\.0$/, "")} giờ`}
             fillFrom="rgba(196, 181, 253, 0.55)"
-            fillTo="rgba(99, 102, 241, 0.55)"
+            fillTo="rgba(99, 102, 241, 0.65)"
+            iconTint="rgba(221, 214, 254, 0.7)"
+            vibe={sleepVibe(value.sleep_hours)}
+          />
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.24, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="space-y-2.5"
+        >
+          <p className="px-1 text-[14px] font-semibold tracking-tight text-foreground">
+            Tần suất vận động (Buổi/tuần)
+          </p>
+          <LiquidGlassSlider
+            value={value.exercise_sessions}
+            onChange={(n) =>
+              onChange({ ...value, exercise_sessions: Math.round(n) })
+            }
+            min={0}
+            max={7}
+            step={1}
+            icon={Dumbbell}
+            label="Vận động"
+            display={
+              value.exercise_sessions >= 7
+                ? "7+ buổi"
+                : `${value.exercise_sessions} buổi`
+            }
+            fillFrom="rgba(254, 215, 170, 0.55)"
+            fillTo="rgba(244, 63, 94, 0.65)"
+            iconTint="rgba(255, 228, 230, 0.75)"
+            vibe={exerciseVibe(value.exercise_sessions)}
           />
         </motion.section>
       </div>
