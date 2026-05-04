@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useTransform } from "framer-motion";
 import {
   CameraOff,
   Check,
@@ -10,25 +10,47 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  LEFT_THRESHOLD,
+  RIGHT_THRESHOLD,
+  STRAIGHT_HI,
+  STRAIGHT_LO,
+  useHeadPose,
+} from "@/lib/mediapipe/use-head-pose";
+
 type Props = {
   onCapture: (file: File) => void;
 };
 
 type Phase = "requesting" | "denied" | "streaming" | "captured";
 
+// Sub-state inside `streaming`. Drives both the active instruction and the
+// progress-ring fill source. Sequence:
+//   lighting → straight → left → right → final → (capture)
+type SubPhase = "lighting" | "straight" | "left" | "right" | "final";
+
 type Instruction = {
   text: string;
   emoji?: string;
 };
 
-// Cycled while the laser is sweeping. Each step holds for ~SCAN_STEP_MS so the
-// labor-illusion feels like real biometric work, not random copy.
 const INSTRUCTIONS: Instruction[] = [
   { text: "Nhìn thẳng vào ống kính…", emoji: "👀" },
   { text: "Nghiêng mặt sang trái một chút…", emoji: "↩️" },
   { text: "Nghiêng mặt sang phải nào…", emoji: "↪️" },
   { text: "Đủ ánh sáng rồi, giữ nguyên nhé!", emoji: "✨" },
 ];
+
+// Map each sub-phase to the index of the instruction we want to display.
+// `lighting` and `straight` share index 0 — the lighting check gates entry
+// to the straight-pose check, but the user-facing copy is identical.
+const SUB_PHASE_TO_INSTRUCTION: Record<SubPhase, number> = {
+  lighting: 0,
+  straight: 0,
+  left: 1,
+  right: 2,
+  final: 3,
+};
 
 const LABOR_PHRASES = [
   "Measuring humidity…",
@@ -44,10 +66,18 @@ const SCAN_TOTAL_MS = SCAN_STEP_MS * INSTRUCTIONS.length;
 const LOW_LIGHT_THRESHOLD = 70;
 const LOW_LIGHT_SAMPLE_INTERVAL_MS = 700;
 
+// Hold-times to debounce pose transitions — a brief flicker into the right
+// pose shouldn't fire a transition.
+const LIGHTING_OK_HOLD_MS = 800;
+const STRAIGHT_HOLD_MS = 700;
+
+// If MediaPipe hasn't loaded by then, OR the user can't pass the lighting/
+// straight gates within this window, drop to the timer-driven fallback flow.
+// Without this the state machine can stall forever if the CDN is slow, the
+// model 404s, or the user covers the camera.
+const AI_STALL_TIMEOUT_MS = 6000;
+
 // SVG mask: blur+darken everywhere EXCEPT the central rounded scan zone.
-// White inside <mask> = visible in output (alpha 1). Black inside <mask> =
-// transparent in output (alpha 0). CSS `mask-image` then uses alpha to gate
-// the backdrop-filter — letting the user's face stay sharp in the center.
 const SCAN_VIGNETTE_MASK =
   "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><mask id='m'><rect width='100' height='100' fill='white'/><rect x='10' y='18' width='80' height='64' rx='12' ry='12' fill='black'/></mask></defs><rect width='100' height='100' fill='white' mask='url(%23m)'/></svg>\")";
 
@@ -60,14 +90,23 @@ export function StepPhotoScan({ onCapture }: Props) {
 
   const [phase, setPhase] = useState<Phase>("requesting");
   const [error, setError] = useState<string | null>(null);
-  const [instructionIdx, setInstructionIdx] = useState(0);
+  const [subPhase, setSubPhase] = useState<SubPhase>("lighting");
+  const [fallbackIdx, setFallbackIdx] = useState(0);
+  const [useFallback, setUseFallback] = useState(false);
   const [laborIdx, setLaborIdx] = useState(0);
   const [lowLight, setLowLight] = useState(false);
   const [shutter, setShutter] = useState(false);
 
-  // Hard-stop the camera the moment we're done with it (unmount, denial,
-  // capture). Keeping the stream alive shows the indicator dot and drains
-  // battery — both bad for an onboarding step the user just left.
+  // ─── Head-pose tracking (MediaPipe Face Landmarker) ──────────────────
+  // Active only while the camera is streaming AND we haven't fallen back
+  // to the timer-driven flow. The hook lazy-loads the WASM/model on first
+  // call and is RAF-driven.
+  const { ratio, snapshot } = useHeadPose(
+    videoRef,
+    phase === "streaming" && !useFallback
+  );
+
+  // Hard-stop the camera when we're done with it.
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -101,11 +140,12 @@ export function StepPhotoScan({ onCapture }: Props) {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // iOS Safari needs an explicit play() after srcObject assignment.
         await videoRef.current.play().catch(() => {});
       }
       setPhase("streaming");
-      setInstructionIdx(0);
+      setSubPhase("lighting");
+      setFallbackIdx(0);
+      setUseFallback(false);
     } catch {
       setError(
         "Mika không truy cập được camera 😢 — bạn có thể tải ảnh có sẵn nhé."
@@ -114,19 +154,13 @@ export function StepPhotoScan({ onCapture }: Props) {
     }
   }, []);
 
-  // Auto-request the camera the moment the step mounts. The user already
-  // produced a gesture by tapping "Continue" on the previous step, so the
-  // browser permission prompt will fire without an extra "Allow camera" click.
+  // Auto-request camera on mount.
   useEffect(() => {
     if (requestedRef.current) return;
     requestedRef.current = true;
     void requestCamera();
   }, [requestCamera]);
 
-  // ─── Frame capture ──────────────────────────────────────────────────────
-  // Snapshots the current video frame, un-mirrors it (we mirror the preview
-  // for natural selfie feel but want the stored image oriented as the camera
-  // sees it), and hands the resulting File to the parent's existing pipeline.
   const captureNow = useCallback(() => {
     const video = videoRef.current;
     if (!video || video.readyState < 2) return;
@@ -148,8 +182,6 @@ export function StepPhotoScan({ onCapture }: Props) {
         const file = new File([blob], `selfie-${Date.now()}.jpg`, {
           type: "image/jpeg",
         });
-        // Stop the stream right before handing off — the parent will navigate
-        // to the analysis screen and we don't want the camera light lingering.
         stopStream();
         onCapture(file);
       },
@@ -158,31 +190,90 @@ export function StepPhotoScan({ onCapture }: Props) {
     );
   }, [onCapture, stopStream]);
 
-  // ─── Cycle scan instructions while streaming ─────────────────────────────
+  // ─── AI state machine (pose-driven) ──────────────────────────────────
+  // Each branch sets a hold-timer that auto-cancels via the effect cleanup
+  // when the dependency it's gated on flips. Reaching `final` triggers the
+  // capture effect below.
   useEffect(() => {
-    if (phase !== "streaming") return;
+    if (phase !== "streaming" || useFallback) return;
+
+    if (subPhase === "lighting" && !lowLight) {
+      const t = setTimeout(() => setSubPhase("straight"), LIGHTING_OK_HOLD_MS);
+      return () => clearTimeout(t);
+    }
+    if (subPhase === "straight" && snapshot.pose === "straight") {
+      const t = setTimeout(() => setSubPhase("left"), STRAIGHT_HOLD_MS);
+      return () => clearTimeout(t);
+    }
+    if (subPhase === "left" && snapshot.pose === "left") {
+      // Hold briefly so a single noisy frame near the threshold doesn't
+      // pop us forward — and so the progress ring visibly hits 100% before
+      // we move on.
+      const t = setTimeout(() => setSubPhase("right"), 250);
+      return () => clearTimeout(t);
+    }
+    if (subPhase === "right" && snapshot.pose === "right") {
+      const t = setTimeout(() => setSubPhase("final"), 250);
+      return () => clearTimeout(t);
+    }
+  }, [phase, useFallback, subPhase, snapshot.pose, lowLight]);
+
+  // ─── Fallback gate ───────────────────────────────────────────────────
+  // If MediaPipe never loads (CDN down, model 404, GPU rejected) OR the
+  // user can't pass the lighting/straight gates within the window, drop
+  // to the timer-driven flow so the scan completes anyway.
+  useEffect(() => {
+    if (phase !== "streaming" || useFallback) return;
+    if (snapshot.loadError) {
+      // Defer one tick so the setState happens from a callback, not the
+      // effect body — keeps the React Compiler / lint rule happy.
+      const tErr = setTimeout(() => setUseFallback(true), 0);
+      return () => clearTimeout(tErr);
+    }
+    const t = setTimeout(() => {
+      const stalledOnGate = subPhase === "lighting" || subPhase === "straight";
+      if (!snapshot.ready || stalledOnGate) {
+        setUseFallback(true);
+      }
+    }, AI_STALL_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [phase, useFallback, snapshot.ready, snapshot.loadError, subPhase]);
+
+  // ─── Fallback timer cycle ────────────────────────────────────────────
+  // Mirrors the old behavior: cycles instructions on a timer and triggers
+  // capture at the end. Only runs when AI mode has bailed.
+  useEffect(() => {
+    if (phase !== "streaming" || !useFallback) return;
     const tick = setInterval(() => {
-      setInstructionIdx((i) => Math.min(i + 1, INSTRUCTIONS.length - 1));
+      setFallbackIdx((i) => Math.min(i + 1, INSTRUCTIONS.length - 1));
     }, SCAN_STEP_MS);
-
     const finish = setTimeout(() => {
-      setPhase("captured");
-      // Brief checkmark moment, then shutter + capture.
-      setTimeout(() => {
-        setShutter(true);
-        setTimeout(() => {
-          captureNow();
-        }, 220);
-      }, 650);
+      setSubPhase("final");
     }, SCAN_TOTAL_MS);
-
     return () => {
       clearInterval(tick);
       clearTimeout(finish);
     };
-  }, [phase, captureNow]);
+  }, [phase, useFallback]);
 
-  // ─── Cycle labor-illusion phrases ────────────────────────────────────────
+  // ─── final → capture (shared by AI + fallback) ───────────────────────
+  useEffect(() => {
+    if (subPhase !== "final" || phase !== "streaming") return;
+    // Defer the phase flip one tick so we're not calling setState in the
+    // effect body (lint), then run the original 650ms checkmark + 220ms
+    // shutter handoff.
+    const t0 = setTimeout(() => setPhase("captured"), 0);
+    const t1 = setTimeout(() => {
+      setShutter(true);
+      setTimeout(() => captureNow(), 220);
+    }, 650);
+    return () => {
+      clearTimeout(t0);
+      clearTimeout(t1);
+    };
+  }, [subPhase, phase, captureNow]);
+
+  // ─── Cycle labor-illusion phrases ────────────────────────────────────
   useEffect(() => {
     if (phase !== "streaming" && phase !== "captured") return;
     const tick = setInterval(() => {
@@ -191,7 +282,7 @@ export function StepPhotoScan({ onCapture }: Props) {
     return () => clearInterval(tick);
   }, [phase]);
 
-  // ─── Low-light sampler ───────────────────────────────────────────────────
+  // ─── Low-light sampler ───────────────────────────────────────────────
   useEffect(() => {
     if (phase !== "streaming") return;
     const interval = setInterval(() => {
@@ -235,8 +326,22 @@ export function StepPhotoScan({ onCapture }: Props) {
   const denied = phase === "denied";
   const requesting = phase === "requesting";
 
-  // Title chip sits just below the sticky page-level progress pill.
-  // 76px ≈ pill height (44) + header pt-3/pb-2 (20) + breathing room (12).
+  // Resolve which instruction to display. In AI mode, derive from sub-phase;
+  // in fallback, follow the timer counter.
+  const displayInstructionIdx = useFallback
+    ? fallbackIdx
+    : SUB_PHASE_TO_INSTRUCTION[subPhase];
+
+  // The "slow down" warning fires when MediaPipe sees fast movement OR when
+  // the face is lost mid-pose-step. We hide it on lighting/final since those
+  // gates don't depend on tracking the user's head.
+  const isPoseGate = subPhase === "left" || subPhase === "right";
+  const showSlowDown =
+    !useFallback &&
+    isPoseGate &&
+    !captured &&
+    (snapshot.tooFast || snapshot.pose === "lost");
+
   const TITLE_TOP = "calc(env(safe-area-inset-top) + 76px)";
 
   return (
@@ -246,11 +351,6 @@ export function StepPhotoScan({ onCapture }: Props) {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
       className="absolute inset-0 z-10 overflow-hidden bg-black"
-      // Surgical fix: the parent column has `paddingTop: env(safe-area-inset-top)`,
-      // and an absolute child's inset:0 fills the *padding box*, not the border
-      // box. Without these two lines the video would stop below the iOS notch
-      // and the mesh gradient would peek through. We extend up by the safe-area
-      // amount so the video reaches the very top edge of the column.
       style={{
         top: "calc(-1 * env(safe-area-inset-top))",
         height: "calc(100% + env(safe-area-inset-top))",
@@ -266,7 +366,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         style={{ transform: "scaleX(-1)" }}
       />
 
-      {/* ── Layer 1 · Vignette: blur(4px) brightness(0.8) outside scan zone */}
+      {/* ── Layer 1 · Vignette (blur outside scan zone) ────────────────── */}
       {!denied && !requesting && (
         <div
           aria-hidden
@@ -284,13 +384,18 @@ export function StepPhotoScan({ onCapture }: Props) {
         />
       )}
 
-      {/* ── Layer 2 · Squircle border glow (cyan/white, pulsing) ────────── */}
+      {/* ── Layer 2 · Squircle border glow ─────────────────────────────── */}
       {!denied && !requesting && <SquircleGlow captured={captured} />}
 
-      {/* ── Layer 3 · Full-height laser sweep ──────────────────────────── */}
+      {/* ── Layer 3 · Head-turn progress ring (AI mode, pose gates) ────── */}
+      {!denied && !requesting && !useFallback && isPoseGate && !captured && (
+        <HeadTurnProgressRing ratio={ratio} subPhase={subPhase} />
+      )}
+
+      {/* ── Layer 4 · Full-height laser sweep ──────────────────────────── */}
       {!captured && !denied && !requesting && <FullHeightLaser />}
 
-      {/* ── Layer 4 · Low-light screen-flash ───────────────────────────── */}
+      {/* ── Layer 5 · Low-light screen-flash ───────────────────────────── */}
       <motion.div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-[6]"
@@ -302,7 +407,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       />
 
-      {/* ── Layer 5 · Top floating glass title (under page progress pill) */}
+      {/* ── Layer 6 · Top floating glass title ─────────────────────────── */}
       {!denied && (
         <div
           className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-5 sm:px-6"
@@ -341,7 +446,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         </div>
       )}
 
-      {/* ── Layer 6 · Low-light hint chip ──────────────────────────────── */}
+      {/* ── Layer 7 · Low-light hint chip ──────────────────────────────── */}
       <AnimatePresence>
         {lowLight && !captured && !denied && (
           <motion.div
@@ -364,7 +469,30 @@ export function StepPhotoScan({ onCapture }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── Layer 7 · Bottom instruction text + capture button ─────────── */}
+      {/* ── Layer 8 · "Slow down" toast (AI pose-gate only) ────────────── */}
+      <AnimatePresence>
+        {showSlowDown && (
+          <motion.div
+            key="slowdown"
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 360, damping: 24 }}
+            className="absolute left-1/2 top-1/2 z-[22] -translate-x-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-[13px] font-semibold text-white"
+            style={{
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(24px) saturate(180%)",
+              WebkitBackdropFilter: "blur(24px) saturate(180%)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.40)",
+            }}
+          >
+            🐢 Chậm lại một chút bạn ơi…
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 9 · Bottom instruction + capture controls ────────────── */}
       {!denied && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-3 px-5 sm:px-6"
@@ -372,7 +500,6 @@ export function StepPhotoScan({ onCapture }: Props) {
             paddingBottom: "max(2rem, env(safe-area-inset-bottom))",
           }}
         >
-          {/* Labor-illusion ticker */}
           {!captured && !requesting && (
             <AnimatePresence mode="wait">
               <motion.span
@@ -394,7 +521,6 @@ export function StepPhotoScan({ onCapture }: Props) {
             </AnimatePresence>
           )}
 
-          {/* Instruction card — floats above the capture button */}
           <div className="pointer-events-auto w-full max-w-[360px]">
             <AnimatePresence mode="wait">
               {captured ? (
@@ -446,7 +572,7 @@ export function StepPhotoScan({ onCapture }: Props) {
                 </motion.div>
               ) : (
                 <motion.div
-                  key={instructionIdx}
+                  key={`instr-${displayInstructionIdx}`}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
@@ -461,14 +587,15 @@ export function StepPhotoScan({ onCapture }: Props) {
                       "0 14px 36px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
                   }}
                 >
-                  <span aria-hidden>{INSTRUCTIONS[instructionIdx].emoji}</span>
-                  {INSTRUCTIONS[instructionIdx].text}
+                  <span aria-hidden>
+                    {INSTRUCTIONS[displayInstructionIdx].emoji}
+                  </span>
+                  {INSTRUCTIONS[displayInstructionIdx].text}
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
 
-          {/* Gallery fallback — always available while not captured */}
           {!captured && (
             <button
               type="button"
@@ -490,7 +617,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         </div>
       )}
 
-      {/* ── Layer 8 · Center checkmark on capture ──────────────────────── */}
+      {/* ── Layer 10 · Center checkmark on capture ─────────────────────── */}
       <AnimatePresence>
         {captured && (
           <motion.span
@@ -510,7 +637,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── Layer 9 · Shutter flash ────────────────────────────────────── */}
+      {/* ── Layer 11 · Shutter flash ───────────────────────────────────── */}
       <AnimatePresence>
         {shutter && (
           <motion.span
@@ -524,7 +651,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── Layer 10 · Permission denied overlay ───────────────────────── */}
+      {/* ── Layer 12 · Permission denied overlay ───────────────────────── */}
       <AnimatePresence>
         {denied && (
           <PermissionFallback
@@ -535,7 +662,6 @@ export function StepPhotoScan({ onCapture }: Props) {
         )}
       </AnimatePresence>
 
-      {/* Hidden gallery input — shared by fallback dialog AND footer button */}
       <input
         ref={galleryInputRef}
         type="file"
@@ -548,11 +674,10 @@ export function StepPhotoScan({ onCapture }: Props) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Squircle border glow — replaces the small oval guide. Subtle, large,
-// centered. Three concentric pulse rings + a static crisp inner border.
+// Squircle border glow — three pulsing rings + a static crisp inner border.
 // ════════════════════════════════════════════════════════════════════════
 function SquircleGlow({ captured }: { captured: boolean }) {
-  const tint = captured ? "34,197,94" : "165,243,252"; // emerald vs cyan
+  const tint = captured ? "34,197,94" : "165,243,252";
   const innerBorder = captured
     ? "rgba(34,197,94,0.95)"
     : "rgba(255,255,255,0.85)";
@@ -603,8 +728,90 @@ function SquircleGlow({ captured }: { captured: boolean }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Full-height laser line — sweeps top↔bottom across the entire container,
-// not just inside a small box.
+// Head-turn progress ring — SVG circle around the squircle scan zone.
+// Bound to the head-pose `ratio` motion value via `useTransform` so the
+// stroke-dashoffset updates every animation frame WITHOUT triggering a
+// React re-render. Only mounts during the `left` and `right` sub-phases.
+// ════════════════════════════════════════════════════════════════════════
+const RING_R = 168;
+const RING_C = 2 * Math.PI * RING_R;
+
+function HeadTurnProgressRing({
+  ratio,
+  subPhase,
+}: {
+  ratio: ReturnType<typeof useHeadPose>["ratio"];
+  subPhase: SubPhase;
+}) {
+  // Map ratio to [0, 1] progress depending on which pose we're collecting.
+  // `useTransform` reads the current `subPhase` from a closure — when
+  // `subPhase` changes, this hook re-runs and rebuilds the transform with
+  // the fresh closure, so the math stays in sync with the active gate.
+  const dashOffset = useTransform(ratio, (r) => {
+    if (Number.isNaN(r)) return RING_C;
+    let p = 0;
+    if (subPhase === "left") {
+      p = (r - STRAIGHT_HI) / (LEFT_THRESHOLD - STRAIGHT_HI);
+    } else if (subPhase === "right") {
+      p = (STRAIGHT_LO - r) / (STRAIGHT_LO - RIGHT_THRESHOLD);
+    }
+    p = Math.max(0, Math.min(1, p));
+    return RING_C * (1 - p);
+  });
+
+  // Tint the ring per direction so the user has a quick visual confirmation
+  // they're turning the right way.
+  const stroke =
+    subPhase === "left"
+      ? "rgba(165,243,252,0.95)"
+      : "rgba(255,196,236,0.95)";
+  const glowColor =
+    subPhase === "left"
+      ? "rgba(125,211,252,0.65)"
+      : "rgba(244,114,182,0.55)";
+
+  return (
+    <motion.svg
+      aria-hidden
+      className="pointer-events-none absolute left-1/2 top-1/2 z-[11] -translate-x-1/2 -translate-y-1/2"
+      viewBox="0 0 400 400"
+      style={{ width: "92%", height: "92%", maxWidth: "440px" }}
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+    >
+      {/* Track */}
+      <circle
+        cx="200"
+        cy="200"
+        r={RING_R}
+        fill="none"
+        stroke="rgba(255,255,255,0.14)"
+        strokeWidth="3"
+      />
+      {/* Progress */}
+      <motion.circle
+        cx="200"
+        cy="200"
+        r={RING_R}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeDasharray={RING_C}
+        strokeDashoffset={dashOffset}
+        transform="rotate(-90 200 200)"
+        style={{
+          filter: `drop-shadow(0 0 8px ${glowColor})`,
+        }}
+      />
+    </motion.svg>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Full-height laser sweep
 // ════════════════════════════════════════════════════════════════════════
 function FullHeightLaser() {
   return (
@@ -624,7 +831,7 @@ function FullHeightLaser() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Permission denied / fallback — Liquid Glass card on a darkened scrim
+// Permission denied / fallback dialog
 // ════════════════════════════════════════════════════════════════════════
 function PermissionFallback({
   error,
