@@ -21,13 +21,19 @@ export const STRAIGHT_HI = 1.2;
 export const LEFT_THRESHOLD = 2.5;
 export const RIGHT_THRESHOLD = 0.4;
 
-// Frame-to-frame ratio velocity above which we nudge the user to slow down.
-// Tuned for ~60Hz RAF; assumes the spec ratio of [0.4, 2.5] should take >300ms
-// to traverse in a controlled turn.
-const FAST_DELTA_PER_MS = 0.006;
-// "Lost face" requires this much consecutive blank time — a single dropped
-// frame shouldn't kick the user out of the flow.
-const LOST_TIMEOUT_MS = 500;
+// Velocity threshold for the "Chậm lại một chút" warning.
+//
+// Spec wrote `velocity = |Δratio| / deltaTime`, threshold `> 0.15`, marked
+// "calibrate as needed". The spec's number is unitless, so we picked a unit
+// (Δratio per millisecond — natural for performance.now()) and calibrated
+// the threshold against a typical full-range traversal: a brisk but smooth
+// turn covers Δratio ≈ 2 over ~1000ms (≈ 0.002/ms). 0.009/ms fires when the
+// user moves ~4× faster than that — i.e. on jerks, not natural turns.
+const FAST_DELTA_PER_MS = 0.009;
+// "Lost face" grace window. Spec wants the toast "immediately"; 250ms is
+// short enough to feel immediate but long enough to ride out a single
+// dropped detection frame from MediaPipe.
+const LOST_TIMEOUT_MS = 250;
 // Once flagged "too fast", stay flagged for this long so the warning sticks
 // long enough to read instead of flickering on/off every frame.
 const TOO_FAST_HOLD_MS = 1500;

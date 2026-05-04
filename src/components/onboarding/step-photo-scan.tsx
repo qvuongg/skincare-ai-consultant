@@ -332,15 +332,17 @@ export function StepPhotoScan({ onCapture }: Props) {
     ? fallbackIdx
     : SUB_PHASE_TO_INSTRUCTION[subPhase];
 
-  // The "slow down" warning fires when MediaPipe sees fast movement OR when
-  // the face is lost mid-pose-step. We hide it on lighting/final since those
-  // gates don't depend on tracking the user's head.
+  // Two distinct warnings per spec:
+  //   • Face-lost     → soft fade-in, calmer copy ("Mika không thấy bạn…").
+  //   • Too-fast      → elastic-bounce spring, attention-grabbing.
+  // Both are scoped to AI mode + the pose-gate sub-phases, where head
+  // tracking actually matters. `lighting`/`final` don't depend on tracking,
+  // and the gallery button is the user's escape hatch in fallback mode.
   const isPoseGate = subPhase === "left" || subPhase === "right";
-  const showSlowDown =
-    !useFallback &&
-    isPoseGate &&
-    !captured &&
-    (snapshot.tooFast || snapshot.pose === "lost");
+  const trackingActive = !useFallback && isPoseGate && !captured;
+  const showFaceLost = trackingActive && snapshot.pose === "lost";
+  const showTooFast =
+    trackingActive && snapshot.pose !== "lost" && snapshot.tooFast;
 
   const TITLE_TOP = "calc(env(safe-area-inset-top) + 76px)";
 
@@ -392,8 +394,10 @@ export function StepPhotoScan({ onCapture }: Props) {
         <HeadTurnProgressRing ratio={ratio} subPhase={subPhase} />
       )}
 
-      {/* ── Layer 4 · Full-height laser sweep ──────────────────────────── */}
-      {!captured && !denied && !requesting && <FullHeightLaser />}
+      {/* ── Layer 4 · 3D orbital scan rings ────────────────────────────── */}
+      {!captured && !denied && !requesting && (
+        <OrbitalScanRings subPhase={subPhase} />
+      )}
 
       {/* ── Layer 5 · Low-light screen-flash ───────────────────────────── */}
       <motion.div
@@ -469,15 +473,49 @@ export function StepPhotoScan({ onCapture }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── Layer 8 · "Slow down" toast (AI pose-gate only) ────────────── */}
+      {/* ── Layer 8a · "Face lost" toast (soft fade) ───────────────────── */}
       <AnimatePresence>
-        {showSlowDown && (
+        {showFaceLost && (
           <motion.div
-            key="slowdown"
-            initial={{ opacity: 0, y: 8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.96 }}
-            transition={{ type: "spring", stiffness: 360, damping: 24 }}
+            key="face-lost"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute left-1/2 top-1/2 z-[22] -translate-x-1/2 -translate-y-1/2 rounded-2xl px-4 py-2.5 text-center text-[13px] font-semibold text-white"
+            style={{
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(24px) saturate(180%)",
+              WebkitBackdropFilter: "blur(24px) saturate(180%)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.40)",
+            }}
+          >
+            👀 Mika không thấy bạn, nhìn thẳng vào cam nhé!
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 8b · "Too fast" toast (elastic bounce) ───────────────── */}
+      <AnimatePresence>
+        {showTooFast && (
+          <motion.div
+            key="too-fast"
+            initial={{ opacity: 0, y: 16, scale: 0.7 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              // Elastic overshoot: the keyframes carry the bounce so it
+              // reads on devices that don't render the spring's overshoot
+              // strongly enough.
+              scale: [0.7, 1.18, 0.94, 1.06, 1],
+            }}
+            exit={{ opacity: 0, y: -8, scale: 0.94 }}
+            transition={{
+              y: { type: "spring", stiffness: 600, damping: 12, mass: 0.9 },
+              scale: { duration: 0.6, ease: [0.22, 1, 0.36, 1] },
+              opacity: { duration: 0.18 },
+            }}
             className="absolute left-1/2 top-1/2 z-[22] -translate-x-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-[13px] font-semibold text-white"
             style={{
               background: "rgba(0,0,0,0.55)",
@@ -811,22 +849,173 @@ function HeadTurnProgressRing({
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Full-height laser sweep
+// 3D Orbital Scan Rings
+//
+// Three SVG circle paths arranged at different rotateX angles inside a
+// `transform-style: preserve-3d` stack with a perspective parent. Each ring
+// spins continuously on rotateY at its own rate, giving the illusion that
+// they orbit a sphere centered on the user's face. Sub-phase mapping:
+//   • lighting     — gentle vertical wobble (rotateX), no group tilt.
+//   • left / right — entire group tilts rotateZ ±22° toward the requested
+//                    direction and breathes on scale.
+//   • straight     — calm, no tilt or pulse.
+//   • final        — same as straight.
+//
+// Implementation note: blur is applied via the SVG `<feGaussianBlur>` filter
+// per-ring, NOT via CSS `filter: blur(...)` on the 3D container — WebKit
+// (iOS Safari) flattens `transform-style: preserve-3d` whenever a CSS filter
+// sits anywhere between the perspective and the 3D children, killing the
+// orbital illusion on the exact device class we care about. Opacity is also
+// baked into the gradient stops for the same reason (CSS opacity creates a
+// stacking context that can flatten 3D in some WebKit versions).
 // ════════════════════════════════════════════════════════════════════════
-function FullHeightLaser() {
+function OrbitalScanRings({ subPhase }: { subPhase: SubPhase }) {
+  const isLighting = subPhase === "lighting";
+  const isLeft = subPhase === "left";
+  const isRight = subPhase === "right";
+  const isPoseGate = isLeft || isRight;
+
+  const dirTilt = isLeft ? -22 : isRight ? 22 : 0;
+
   return (
-    <motion.div
+    <div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 z-[12] h-[3px]"
-      style={{
-        background:
-          "linear-gradient(90deg, transparent 4%, rgba(165,243,252,0.95) 24%, rgba(255,255,255,1) 50%, rgba(165,243,252,0.95) 76%, transparent 96%)",
-        boxShadow:
-          "0 0 14px rgba(165,243,252,0.85), 0 0 32px rgba(125,211,252,0.55)",
-      }}
-      animate={{ top: ["0%", "100%", "0%"] }}
-      transition={{ duration: 3.0, repeat: Infinity, ease: "easeInOut" }}
-    />
+      className="pointer-events-none absolute inset-0 z-[11] flex items-center justify-center"
+      style={{ perspective: "1200px" }}
+    >
+      <motion.div
+        className="relative"
+        style={{
+          width: "82%",
+          height: "82%",
+          maxWidth: "420px",
+          maxHeight: "420px",
+          transformStyle: "preserve-3d",
+        }}
+        animate={{
+          rotateZ: dirTilt,
+          // Subtle vertical wobble during the lighting check — emphasizes
+          // the "scanning vertically" cue from the spec without disturbing
+          // the per-ring rotateX bases.
+          rotateX: isLighting ? [-5, 5, -5] : 0,
+          scale: isPoseGate ? [1, 1.06, 1] : 1,
+        }}
+        transition={{
+          rotateZ: { duration: 0.7, ease: [0.22, 1, 0.36, 1] },
+          rotateX: isLighting
+            ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
+            : { duration: 0.5 },
+          scale: isPoseGate
+            ? { duration: 1.4, repeat: Infinity, ease: "easeInOut" }
+            : { duration: 0.4 },
+        }}
+      >
+        {/* Equatorial — broad orbit viewed from slightly above */}
+        <motion.div
+          className="absolute inset-0"
+          style={{ transformStyle: "preserve-3d" }}
+          initial={{ rotateX: 72, rotateY: 0 }}
+          animate={{ rotateX: 72, rotateY: 360 }}
+          transition={{
+            rotateX: { duration: 0 },
+            rotateY: { duration: 5.5, repeat: Infinity, ease: "linear" },
+          }}
+        >
+          <OrbitalRingSvg gradientId="orbit-grad-1" filterId="orbit-blur-1" />
+        </motion.div>
+
+        {/* Diagonal — counter-spinning at a different angle */}
+        <motion.div
+          className="absolute inset-0"
+          style={{ transformStyle: "preserve-3d" }}
+          initial={{ rotateX: 38, rotateZ: 45, rotateY: 360 }}
+          animate={{ rotateX: 38, rotateZ: 45, rotateY: 0 }}
+          transition={{
+            rotateX: { duration: 0 },
+            rotateZ: { duration: 0 },
+            rotateY: { duration: 6.5, repeat: Infinity, ease: "linear" },
+          }}
+        >
+          <OrbitalRingSvg gradientId="orbit-grad-2" filterId="orbit-blur-2" />
+        </motion.div>
+
+        {/* Near-vertical — the "vertical orbit" the spec calls for during */}
+        {/* the lighting check. Spins faster while in `lighting`. */}
+        <motion.div
+          className="absolute inset-0"
+          style={{ transformStyle: "preserve-3d" }}
+          initial={{ rotateX: 8, rotateY: 0 }}
+          animate={{ rotateX: 8, rotateY: 360 }}
+          transition={{
+            rotateX: { duration: 0 },
+            rotateY: {
+              duration: isLighting ? 3 : 4.5,
+              repeat: Infinity,
+              ease: "linear",
+            },
+          }}
+        >
+          <OrbitalRingSvg gradientId="orbit-grad-3" filterId="orbit-blur-3" />
+        </motion.div>
+      </motion.div>
+    </div>
+  );
+}
+
+function OrbitalRingSvg({
+  gradientId,
+  filterId,
+}: {
+  gradientId: string;
+  filterId: string;
+}) {
+  // Gradient stops bake `opacity: 0.6` into the alpha values directly
+  // (0.6 × originally-intended alpha) so we don't need `opacity` on the 3D
+  // container — see WebKit-flattening note in OrbitalScanRings header.
+  return (
+    <svg
+      viewBox="0 0 200 200"
+      className="absolute inset-0 size-full"
+      aria-hidden
+    >
+      <defs>
+        <linearGradient
+          id={gradientId}
+          x1="0%"
+          y1="50%"
+          x2="100%"
+          y2="50%"
+        >
+          <stop offset="0%" stopColor="rgba(165,243,252,0)" />
+          <stop offset="35%" stopColor="rgba(165,243,252,0.51)" />
+          <stop offset="50%" stopColor="rgba(255,255,255,0.6)" />
+          <stop offset="65%" stopColor="rgba(165,243,252,0.51)" />
+          <stop offset="100%" stopColor="rgba(165,243,252,0)" />
+        </linearGradient>
+        {/* stdDeviation=4 ≈ CSS blur(8px) from the spec. Applied in the */}
+        {/* SVG so it doesn't flatten the parent's preserve-3d context. */}
+        <filter
+          id={filterId}
+          x="-20%"
+          y="-20%"
+          width="140%"
+          height="140%"
+          colorInterpolationFilters="sRGB"
+        >
+          <feGaussianBlur stdDeviation="4" />
+        </filter>
+      </defs>
+      <circle
+        cx="100"
+        cy="100"
+        r="92"
+        fill="none"
+        stroke={`url(#${gradientId})`}
+        strokeWidth="3"
+        strokeLinecap="round"
+        filter={`url(#${filterId})`}
+      />
+    </svg>
   );
 }
 
