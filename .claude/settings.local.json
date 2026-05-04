@@ -4,7 +4,10 @@
       "Bash(npx tsc *)",
       "Bash(npx eslint *)",
       "Bash(find /Users/buiquocvuong/Projects/skincare-ai-consultant/src/lib/translations* -type f)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(python3 -c \"import openpyxl; print\\(openpyxl.__version__\\)\")",
+      "Bash(pip3 install *)",
+      "Bash(python3 *)"
     ]
   }
 }

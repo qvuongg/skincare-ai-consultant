@@ -2,7 +2,6 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Camera,
   CameraOff,
   Check,
   ImagePlus,
@@ -15,12 +14,7 @@ type Props = {
   onCapture: (file: File) => void;
 };
 
-type Phase =
-  | "permission"
-  | "requesting"
-  | "denied"
-  | "streaming"
-  | "captured";
+type Phase = "requesting" | "denied" | "streaming" | "captured";
 
 type Instruction = {
   text: string;
@@ -45,18 +39,26 @@ const LABOR_PHRASES = [
   "Calibrating color tone…",
 ];
 
-const SCAN_STEP_MS = 1700; // per instruction
+const SCAN_STEP_MS = 1700;
 const SCAN_TOTAL_MS = SCAN_STEP_MS * INSTRUCTIONS.length;
-const LOW_LIGHT_THRESHOLD = 70; // 0..255 average gray
+const LOW_LIGHT_THRESHOLD = 70;
 const LOW_LIGHT_SAMPLE_INTERVAL_MS = 700;
+
+// SVG mask: blur+darken everywhere EXCEPT the central rounded scan zone.
+// White inside <mask> = visible in output (alpha 1). Black inside <mask> =
+// transparent in output (alpha 0). CSS `mask-image` then uses alpha to gate
+// the backdrop-filter — letting the user's face stay sharp in the center.
+const SCAN_VIGNETTE_MASK =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><mask id='m'><rect width='100' height='100' fill='white'/><rect x='10' y='18' width='80' height='64' rx='12' ry='12' fill='black'/></mask></defs><rect width='100' height='100' fill='white' mask='url(%23m)'/></svg>\")";
 
 export function StepPhotoScan({ onCapture }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const samplerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const requestedRef = useRef(false);
 
-  const [phase, setPhase] = useState<Phase>("permission");
+  const [phase, setPhase] = useState<Phase>("requesting");
   const [error, setError] = useState<string | null>(null);
   const [instructionIdx, setInstructionIdx] = useState(0);
   const [laborIdx, setLaborIdx] = useState(0);
@@ -111,6 +113,15 @@ export function StepPhotoScan({ onCapture }: Props) {
       setPhase("denied");
     }
   }, []);
+
+  // Auto-request the camera the moment the step mounts. The user already
+  // produced a gesture by tapping "Continue" on the previous step, so the
+  // browser permission prompt will fire without an extra "Allow camera" click.
+  useEffect(() => {
+    if (requestedRef.current) return;
+    requestedRef.current = true;
+    void requestCamera();
+  }, [requestCamera]);
 
   // ─── Frame capture ──────────────────────────────────────────────────────
   // Snapshots the current video frame, un-mirrors it (we mirror the preview
@@ -181,9 +192,6 @@ export function StepPhotoScan({ onCapture }: Props) {
   }, [phase]);
 
   // ─── Low-light sampler ───────────────────────────────────────────────────
-  // Samples a 32×32 thumbnail of the live video every ~700ms and computes
-  // average luma. If too dark, we whiten the glass overlay so the user's
-  // screen acts as a fill light — borrowed from iOS True Tone selfie tricks.
   useEffect(() => {
     if (phase !== "streaming") return;
     const interval = setInterval(() => {
@@ -204,7 +212,6 @@ export function StepPhotoScan({ onCapture }: Props) {
           sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
         }
       } catch {
-        // Some browsers throw on tainted canvases — bail silently.
         return;
       }
       const avg = sum / (32 * 32);
@@ -224,94 +231,311 @@ export function StepPhotoScan({ onCapture }: Props) {
     onCapture(file);
   };
 
-  const isStreaming = phase === "streaming" || phase === "captured";
   const captured = phase === "captured";
+  const denied = phase === "denied";
+  const requesting = phase === "requesting";
+
+  // Title chip sits just below the sticky page-level progress pill.
+  // 76px ≈ pill height (44) + header pt-3/pb-2 (20) + breathing room (12).
+  const TITLE_TOP = "calc(env(safe-area-inset-top) + 76px)";
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="space-y-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/55 bg-white/55 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/60 backdrop-blur">
-          <span className="size-1.5 rounded-full bg-foreground/70" />
-          Bước 09 · Photo Scan
-        </span>
-        <h1 className="text-balance text-[28px] font-semibold leading-[1.1] tracking-tight text-foreground">
-          {isStreaming
-            ? "Mika đang đọc làn da bạn…"
-            : "Check-var làn da thực tế nào!"}
-        </h1>
-        <p className="text-[14px] leading-relaxed text-foreground/65">
-          {isStreaming
-            ? "Giữ điện thoại cách mặt ~25cm, nhìn theo hướng dẫn nha."
-            : "Cho phép camera để Mika scan trực tiếp — chính xác hơn nhiều so với ảnh có sẵn."}
-        </p>
-      </header>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+      className="absolute inset-0 z-10 overflow-hidden bg-black"
+      // Surgical fix: the parent column has `paddingTop: env(safe-area-inset-top)`,
+      // and an absolute child's inset:0 fills the *padding box*, not the border
+      // box. Without these two lines the video would stop below the iOS notch
+      // and the mesh gradient would peek through. We extend up by the safe-area
+      // amount so the video reaches the very top edge of the column.
+      style={{
+        top: "calc(-1 * env(safe-area-inset-top))",
+        height: "calc(100% + env(safe-area-inset-top))",
+      }}
+    >
+      {/* ── Layer 0 · Live video (full-bleed base) ─────────────────────── */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        autoPlay
+        className="absolute inset-0 size-full object-cover"
+        style={{ transform: "scaleX(-1)" }}
+      />
 
-      {/* ── Permission / denied dialog ──────────────────────────────── */}
-      {(phase === "permission" ||
-        phase === "requesting" ||
-        phase === "denied") && (
-        <PermissionDialog
-          phase={phase}
-          error={error}
-          onAllow={requestCamera}
-          onUseGallery={() => galleryInputRef.current?.click()}
+      {/* ── Layer 1 · Vignette: blur(4px) brightness(0.8) outside scan zone */}
+      {!denied && !requesting && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-[5]"
+          style={{
+            backdropFilter: "blur(4px) brightness(0.8)",
+            WebkitBackdropFilter: "blur(4px) brightness(0.8)",
+            maskImage: SCAN_VIGNETTE_MASK,
+            maskSize: "100% 100%",
+            maskRepeat: "no-repeat",
+            WebkitMaskImage: SCAN_VIGNETTE_MASK,
+            WebkitMaskSize: "100% 100%",
+            WebkitMaskRepeat: "no-repeat",
+          }}
         />
       )}
 
-      {/* ── Camera Squircle frame ───────────────────────────────────── */}
-      {isStreaming && (
-        <div className="mt-6 flex flex-col items-center">
-          <CameraSquircle
-            videoRef={videoRef}
-            instruction={INSTRUCTIONS[instructionIdx]}
-            laborPhrase={LABOR_PHRASES[laborIdx]}
-            captured={captured}
-            lowLight={lowLight}
-            shutter={shutter}
-          />
+      {/* ── Layer 2 · Squircle border glow (cyan/white, pulsing) ────────── */}
+      {!denied && !requesting && <SquircleGlow captured={captured} />}
 
-          <div className="mt-5 min-h-[60px] w-full text-center">
+      {/* ── Layer 3 · Full-height laser sweep ──────────────────────────── */}
+      {!captured && !denied && !requesting && <FullHeightLaser />}
+
+      {/* ── Layer 4 · Low-light screen-flash ───────────────────────────── */}
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-[6]"
+        animate={{
+          backgroundColor: lowLight
+            ? "rgba(255,255,255,0.18)"
+            : "rgba(255,255,255,0)",
+        }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      />
+
+      {/* ── Layer 5 · Top floating glass title (under page progress pill) */}
+      {!denied && (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-5 sm:px-6"
+          style={{ top: TITLE_TOP }}
+        >
+          <motion.div
+            initial={{ y: -8, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{
+              delay: 0.08,
+              type: "spring",
+              stiffness: 320,
+              damping: 26,
+            }}
+            className="pointer-events-auto w-full max-w-[360px] rounded-[28px] px-4 py-3 text-center"
+            style={{
+              background: "rgba(255,255,255,0.10)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              boxShadow:
+                "0 14px 40px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
+            }}
+          >
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+              Bước 09 · Photo Scan
+            </span>
+            <h1 className="mt-1 text-balance text-[17px] font-semibold leading-tight tracking-tight text-white">
+              {captured
+                ? "Scan hoàn tất ✨"
+                : requesting
+                  ? "Đang khởi động camera…"
+                  : "Mika đang đọc làn da bạn…"}
+            </h1>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── Layer 6 · Low-light hint chip ──────────────────────────────── */}
+      <AnimatePresence>
+        {lowLight && !captured && !denied && (
+          <motion.div
+            key="lowlight"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.3 }}
+            className="absolute left-1/2 z-20 -translate-x-1/2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-amber-50"
+            style={{
+              top: "calc(env(safe-area-inset-top) + 168px)",
+              background: "rgba(245,158,11,0.32)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              border: "1px solid rgba(255,255,255,0.20)",
+            }}
+          >
+            💡 Hơi tối — bật màn hình bù sáng cho bạn
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 7 · Bottom instruction text + capture button ─────────── */}
+      {!denied && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-3 px-5 sm:px-6"
+          style={{
+            paddingBottom: "max(2rem, env(safe-area-inset-bottom))",
+          }}
+        >
+          {/* Labor-illusion ticker */}
+          {!captured && !requesting && (
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={laborIdx}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 0.85, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.3 }}
+                className="rounded-full px-2.5 py-1 font-mono text-[10px] tracking-wide text-cyan-200"
+                style={{
+                  background: "rgba(0,0,0,0.45)",
+                  backdropFilter: "blur(16px)",
+                  WebkitBackdropFilter: "blur(16px)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                }}
+              >
+                {LABOR_PHRASES[laborIdx]}
+              </motion.span>
+            </AnimatePresence>
+          )}
+
+          {/* Instruction card — floats above the capture button */}
+          <div className="pointer-events-auto w-full max-w-[360px]">
             <AnimatePresence mode="wait">
               {captured ? (
                 <motion.div
                   key="done"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0 }}
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.96 }}
                   transition={{
                     type: "spring",
-                    stiffness: 380,
-                    damping: 18,
+                    stiffness: 320,
+                    damping: 22,
                   }}
-                  className="flex flex-col items-center gap-1.5"
+                  className="flex flex-col items-center gap-1.5 rounded-[22px] px-4 py-3 text-center"
+                  style={{
+                    background: "rgba(34,197,94,0.18)",
+                    backdropFilter: "blur(28px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                    border: "1px solid rgba(255,255,255,0.22)",
+                    boxShadow:
+                      "0 14px 36px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
+                  }}
                 >
-                  <span className="flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/85 px-3.5 py-1.5 text-[13px] font-semibold text-emerald-700 backdrop-blur">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-emerald-50">
                     <Check className="size-4" strokeWidth={3} />
                     Scan hoàn tất, giữ nguyên 1s nha!
                   </span>
-                  <p className="text-[11px] text-foreground/45">
-                    Ảnh sẽ tự chụp & chuyển sang phân tích.
+                  <p className="text-[11px] text-white/65">
+                    Đang chuyển sang phân tích…
                   </p>
                 </motion.div>
-              ) : (
-                <motion.p
-                  key={instructionIdx}
-                  initial={{ opacity: 0, y: 6 }}
+              ) : requesting ? (
+                <motion.div
+                  key="requesting"
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex items-center justify-center gap-2 text-[15px] font-semibold tracking-tight text-foreground"
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex items-center justify-center gap-2 rounded-[22px] px-4 py-3 text-[13px] font-semibold tracking-tight text-white"
+                  style={{
+                    background: "rgba(255,255,255,0.10)",
+                    backdropFilter: "blur(28px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                    border: "1px solid rgba(255,255,255,0.22)",
+                  }}
+                >
+                  <ScanFace className="size-4" />
+                  Cho phép quyền camera để Mika scan da bạn nha
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={instructionIdx}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center justify-center gap-2 rounded-[22px] px-4 py-3 text-[14px] font-semibold tracking-tight text-white"
+                  style={{
+                    background: "rgba(255,255,255,0.10)",
+                    backdropFilter: "blur(28px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                    border: "1px solid rgba(255,255,255,0.22)",
+                    boxShadow:
+                      "0 14px 36px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
+                  }}
                 >
                   <span aria-hidden>{INSTRUCTIONS[instructionIdx].emoji}</span>
                   {INSTRUCTIONS[instructionIdx].text}
-                </motion.p>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>
+
+          {/* Gallery fallback — always available while not captured */}
+          {!captured && (
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              className="pointer-events-auto flex items-center gap-2 rounded-full px-5 py-3 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+              style={{
+                background: "rgba(255,255,255,0.10)",
+                backdropFilter: "blur(28px) saturate(180%)",
+                WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                border: "1px solid rgba(255,255,255,0.22)",
+                boxShadow:
+                  "0 14px 32px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.25)",
+              }}
+            >
+              <ImagePlus className="size-4" />
+              Tải ảnh có sẵn
+            </button>
+          )}
         </div>
       )}
 
-      {/* Hidden gallery input — shared by permission dialog AND footer pill */}
+      {/* ── Layer 8 · Center checkmark on capture ──────────────────────── */}
+      <AnimatePresence>
+        {captured && (
+          <motion.span
+            key="check"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 460, damping: 18 }}
+            className="absolute left-1/2 top-1/2 z-30 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-500 text-white"
+            style={{
+              boxShadow:
+                "0 16px 40px rgba(16,185,129,0.55), inset 0 1px 0 rgba(255,255,255,0.5)",
+            }}
+          >
+            <Check className="size-10" strokeWidth={3.2} />
+          </motion.span>
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 9 · Shutter flash ────────────────────────────────────── */}
+      <AnimatePresence>
+        {shutter && (
+          <motion.span
+            key="shutter"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="pointer-events-none absolute inset-0 z-40 bg-white"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 10 · Permission denied overlay ───────────────────────── */}
+      <AnimatePresence>
+        {denied && (
+          <PermissionFallback
+            error={error}
+            onRetry={() => void requestCamera()}
+            onUseGallery={() => galleryInputRef.current?.click()}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Hidden gallery input — shared by fallback dialog AND footer button */}
       <input
         ref={galleryInputRef}
         type="file"
@@ -319,410 +543,167 @@ export function StepPhotoScan({ onCapture }: Props) {
         className="sr-only"
         onChange={(e) => handleGalleryFile(e.target.files?.[0])}
       />
-
-      {/* Floating glass pill — gallery fallback, always available */}
-      {phase !== "captured" && (
-        <div className="mt-auto flex flex-col items-center gap-2 pt-6">
-          <button
-            type="button"
-            onClick={() => galleryInputRef.current?.click()}
-            className="flex items-center gap-2 px-5 py-3 text-[13px] font-semibold text-foreground/80 transition-colors active:scale-[0.97]"
-            style={{
-              borderRadius: "9999px",
-              background: "rgba(255,255,255,0.6)",
-              backdropFilter: "blur(40px) saturate(180%)",
-              WebkitBackdropFilter: "blur(40px) saturate(180%)",
-              border: "1px solid rgba(255,255,255,0.7)",
-              boxShadow:
-                "0 12px 28px rgba(31,38,135,0.12), inset 0 1px 0 rgba(255,255,255,0.95)",
-            }}
-          >
-            <ImagePlus className="size-4" />
-            Tải ảnh có sẵn
-          </button>
-          <p className="text-[10px] text-foreground/40">
-            <Camera className="mr-1 inline size-3" />
-            Ảnh được resize 2K, nén JPEG q=0.9 trước khi gửi.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// Permission dialog — Liquid Glass surface with friendly Vietnamese copy
-// ════════════════════════════════════════════════════════════════════════
-function PermissionDialog({
-  phase,
-  error,
-  onAllow,
-  onUseGallery,
-}: {
-  phase: Phase;
-  error: string | null;
-  onAllow: () => void;
-  onUseGallery: () => void;
-}) {
-  const denied = phase === "denied";
-  const requesting = phase === "requesting";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: "spring", stiffness: 320, damping: 26 }}
-      className="relative mt-8 overflow-hidden p-6 sm:p-7"
-      style={{
-        borderRadius: "2rem",
-        background:
-          "linear-gradient(135deg, rgba(168,85,247,0.16), rgba(255,255,255,0.65) 60%)",
-        backdropFilter: "blur(40px) saturate(180%)",
-        WebkitBackdropFilter: "blur(40px) saturate(180%)",
-        border: "1px solid rgba(255,255,255,0.7)",
-        boxShadow:
-          "0 24px 60px rgba(168,85,247,0.18), inset 0 1px 0 rgba(255,255,255,0.95)",
-      }}
-    >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-10 top-0 h-px"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgba(255,255,255,0.95), transparent)",
-        }}
-      />
-
-      <div className="flex flex-col items-center text-center">
-        <motion.span
-          initial={{ scale: 0.85, rotate: -8 }}
-          animate={{ scale: 1, rotate: 0 }}
-          transition={{ type: "spring", stiffness: 380, damping: 16 }}
-          className="flex size-16 items-center justify-center rounded-3xl"
-          style={{
-            background:
-              "linear-gradient(135deg, rgba(168,85,247,0.22), rgba(59,130,246,0.18))",
-            border: "1px solid rgba(255,255,255,0.7)",
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.85), 0 12px 28px rgba(168,85,247,0.25)",
-          }}
-        >
-          {denied ? (
-            <CameraOff className="size-7 text-foreground/70" />
-          ) : (
-            <ScanFace className="size-7 text-purple-700" strokeWidth={2.2} />
-          )}
-        </motion.span>
-
-        <h2 className="mt-4 text-balance text-[20px] font-semibold tracking-tight text-foreground">
-          {denied
-            ? "Mika chưa được phép xem camera"
-            : "Cho phép Mika nhìn ngắm làn da bạn nhé?"}
-        </h2>
-        <p className="mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-foreground/65">
-          {denied
-            ? "Bạn có thể bật lại quyền camera trong cài đặt trình duyệt — hoặc tải ảnh có sẵn ngay tại đây."
-            : "Camera chỉ chạy ngay trên máy bạn — Mika không lưu video, chỉ chụp 1 ảnh selfie để phân tích."}
-        </p>
-
-        {error && (
-          <p className="mt-3 rounded-2xl border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-[12px] text-rose-600">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-5 flex w-full flex-col items-stretch gap-2.5 sm:flex-row sm:justify-center">
-          {!denied && (
-            <button
-              type="button"
-              onClick={onAllow}
-              disabled={requesting}
-              className="h-12 rounded-full bg-foreground px-6 text-[14px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-60"
-            >
-              {requesting ? "Đang kết nối camera…" : "Cho phép camera"}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onUseGallery}
-            className="flex h-12 items-center justify-center gap-2 rounded-full border border-white/65 bg-white/55 px-6 text-[14px] font-semibold text-foreground/80 backdrop-blur"
-          >
-            <ImagePlus className="size-4" />
-            Tải ảnh có sẵn
-          </button>
-        </div>
-
-        <p className="mt-4 flex items-center gap-1 text-[11px] text-foreground/45">
-          <Sparkles className="size-3" />
-          Privacy-first · Camera chạy local trên trình duyệt
-        </p>
-      </div>
     </motion.div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Camera Squircle — live video + Iris glow + oval guide + laser scan +
-// labor-illusion edge text + low-light screen-flash + shutter overlay
+// Squircle border glow — replaces the small oval guide. Subtle, large,
+// centered. Three concentric pulse rings + a static crisp inner border.
 // ════════════════════════════════════════════════════════════════════════
-function CameraSquircle({
-  videoRef,
-  instruction,
-  laborPhrase,
-  captured,
-  lowLight,
-  shutter,
-}: {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  instruction: Instruction;
-  laborPhrase: string;
-  captured: boolean;
-  lowLight: boolean;
-  shutter: boolean;
-}) {
-  // Used for the cycling labor-illusion phrase along the bottom edge.
-  void instruction;
+function SquircleGlow({ captured }: { captured: boolean }) {
+  const tint = captured ? "34,197,94" : "165,243,252"; // emerald vs cyan
+  const innerBorder = captured
+    ? "rgba(34,197,94,0.95)"
+    : "rgba(255,255,255,0.85)";
 
   return (
-    <div className="relative w-full max-w-[360px]">
-      {/* Iris glow rings — slow concentric pulse around the squircle */}
-      <div className="pointer-events-none absolute -inset-4">
-        {[0, 0.9, 1.8].map((delay, i) => (
-          <motion.span
-            key={i}
-            aria-hidden
-            className="absolute inset-0"
-            style={{
-              borderRadius: "2.4rem",
-              background: captured
-                ? "radial-gradient(circle, rgba(34,197,94,0.32), rgba(59,130,246,0.20) 55%, transparent 75%)"
-                : "radial-gradient(circle, rgba(168,85,247,0.32), rgba(59,130,246,0.22) 55%, transparent 75%)",
-            }}
-            animate={{
-              scale: [0.96, 1.06, 0.96],
-              opacity: [0.0, 0.55, 0.0],
-            }}
-            transition={{
-              duration: 2.6,
-              delay,
-              repeat: Infinity,
-              ease: "easeOut",
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        className="relative aspect-square w-full overflow-hidden"
-        style={{
-          borderRadius: "2rem",
-          border: "1px solid rgba(255,255,255,0.7)",
-          boxShadow: captured
-            ? "0 28px 60px rgba(34,197,94,0.30), 0 0 0 2px rgba(34,197,94,0.55), inset 0 1px 0 rgba(255,255,255,0.6)"
-            : "0 28px 60px rgba(168,85,247,0.28), 0 0 0 2px rgba(168,85,247,0.55), inset 0 1px 0 rgba(255,255,255,0.6)",
-          background: "rgba(0,0,0,0.85)",
-        }}
-      >
-        {/* Live video — mirrored for natural selfie feel */}
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          autoPlay
-          className="absolute inset-0 size-full object-cover"
-          style={{ transform: "scaleX(-1)" }}
-        />
-
-        {/* Low-light screen-flash overlay — whitens to bounce light onto face */}
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      {[0, 0.9, 1.8].map((delay, i) => (
         <motion.div
+          key={i}
           aria-hidden
-          className="pointer-events-none absolute inset-0"
-          animate={{
-            backgroundColor: lowLight
-              ? "rgba(255,255,255,0.28)"
-              : "rgba(255,255,255,0)",
-            backdropFilter: lowLight
-              ? "brightness(1.15) saturate(110%)"
-              : "brightness(1) saturate(100%)",
-          }}
-          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-        />
-
-        {/* Oval face-guide — FaceID-style */}
-        <FaceGuide captured={captured} />
-
-        {/* Laser scan bar — sweeps top↔bottom inside the oval area */}
-        {!captured && <LaserScan />}
-
-        {/* Labor-illusion edge phrases */}
-        <LaborEdge phrase={laborPhrase} />
-
-        {/* Specular highlight strip on top edge */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-12 top-0 h-px"
+          className="absolute"
           style={{
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,0.85), transparent)",
+            width: "78%",
+            height: "62%",
+            maxWidth: "360px",
+            maxHeight: "440px",
+            borderRadius: "44px",
+            border: `1.5px solid rgba(${tint},0.55)`,
+            boxShadow: `0 0 0 1px rgba(${tint},0.18), 0 0 36px rgba(${tint},0.50), inset 0 0 28px rgba(${tint},0.16)`,
+          }}
+          animate={{
+            scale: [1, 1.04, 1],
+            opacity: [0.55, 0.95, 0.55],
+          }}
+          transition={{
+            duration: 2.6,
+            delay,
+            repeat: Infinity,
+            ease: "easeInOut",
           }}
         />
-
-        {/* Low-light hint chip */}
-        <AnimatePresence>
-          {lowLight && !captured && (
-            <motion.span
-              key="lowlight"
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.3 }}
-              className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-amber-100/85 px-3 py-1 text-[10px] font-semibold text-amber-800 backdrop-blur"
-            >
-              💡 Hơi tối — bật màn hình bù sáng cho bạn
-            </motion.span>
-          )}
-        </AnimatePresence>
-
-        {/* Center checkmark — pops on capture */}
-        <AnimatePresence>
-          {captured && (
-            <motion.span
-              key="check"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              transition={{
-                type: "spring",
-                stiffness: 460,
-                damping: 18,
-              }}
-              className="absolute left-1/2 top-1/2 z-30 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-500 text-white"
-              style={{
-                boxShadow:
-                  "0 16px 40px rgba(16,185,129,0.55), inset 0 1px 0 rgba(255,255,255,0.5)",
-              }}
-            >
-              <Check className="size-10" strokeWidth={3.2} />
-            </motion.span>
-          )}
-        </AnimatePresence>
-
-        {/* Shutter flash — quick white wipe */}
-        <AnimatePresence>
-          {shutter && (
-            <motion.span
-              key="shutter"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              className="pointer-events-none absolute inset-0 z-40 bg-white"
-            />
-          )}
-        </AnimatePresence>
-      </div>
+      ))}
+      <div
+        aria-hidden
+        className="absolute"
+        style={{
+          width: "78%",
+          height: "62%",
+          maxWidth: "360px",
+          maxHeight: "440px",
+          borderRadius: "44px",
+          border: `1.5px solid ${innerBorder}`,
+          boxShadow: `inset 0 0 16px rgba(${tint},0.30)`,
+        }}
+      />
     </div>
   );
 }
 
-function FaceGuide({ captured }: { captured: boolean }) {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-0 size-full"
-    >
-      <defs>
-        <linearGradient id="faceGuide" x1="0" y1="0" x2="0" y2="1">
-          <stop
-            offset="0"
-            stopColor={captured ? "rgba(34,197,94,0.95)" : "rgba(168,85,247,0.85)"}
-          />
-          <stop
-            offset="1"
-            stopColor={captured ? "rgba(59,130,246,0.85)" : "rgba(59,130,246,0.85)"}
-          />
-        </linearGradient>
-      </defs>
-      <motion.ellipse
-        cx="50"
-        cy="50"
-        rx="28"
-        ry="36"
-        fill="none"
-        stroke="url(#faceGuide)"
-        strokeWidth="0.8"
-        strokeDasharray="4 3"
-        animate={{
-          strokeDashoffset: captured ? 0 : [0, -14],
-          opacity: captured ? 1 : [0.55, 0.95, 0.55],
-        }}
-        transition={{
-          strokeDashoffset: { duration: 4, repeat: Infinity, ease: "linear" },
-          opacity: { duration: 1.8, repeat: Infinity, ease: "easeInOut" },
-        }}
-      />
-      {/* Tick marks at 12/3/6/9 around the oval — adds a biometric vibe */}
-      {[
-        ["50", "12", "50", "16"],
-        ["50", "84", "50", "88"],
-        ["20.5", "48", "16.5", "48"],
-        ["79.5", "48", "83.5", "48"],
-      ].map((coords, i) => (
-        <line
-          key={i}
-          x1={coords[0]}
-          y1={coords[1]}
-          x2={coords[2]}
-          y2={coords[3]}
-          stroke={captured ? "rgba(34,197,94,0.95)" : "rgba(168,85,247,0.85)"}
-          strokeWidth="0.8"
-          strokeLinecap="round"
-        />
-      ))}
-    </svg>
-  );
-}
-
-function LaserScan() {
+// ════════════════════════════════════════════════════════════════════════
+// Full-height laser line — sweeps top↔bottom across the entire container,
+// not just inside a small box.
+// ════════════════════════════════════════════════════════════════════════
+function FullHeightLaser() {
   return (
     <motion.div
       aria-hidden
-      className="pointer-events-none absolute inset-x-6 z-20 h-[3px] rounded-full"
+      className="pointer-events-none absolute inset-x-0 z-[12] h-[3px]"
       style={{
         background:
-          "linear-gradient(90deg, transparent, rgba(165,243,252,0.95), rgba(255,255,255,1), rgba(165,243,252,0.95), transparent)",
+          "linear-gradient(90deg, transparent 4%, rgba(165,243,252,0.95) 24%, rgba(255,255,255,1) 50%, rgba(165,243,252,0.95) 76%, transparent 96%)",
         boxShadow:
-          "0 0 12px rgba(165,243,252,0.85), 0 0 28px rgba(125,211,252,0.55)",
-        backdropFilter: "brightness(1.2)",
-        WebkitBackdropFilter: "brightness(1.2)",
-        top: "12%",
+          "0 0 14px rgba(165,243,252,0.85), 0 0 32px rgba(125,211,252,0.55)",
       }}
-      animate={{ top: ["12%", "82%", "12%"] }}
-      transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+      animate={{ top: ["0%", "100%", "0%"] }}
+      transition={{ duration: 3.0, repeat: Infinity, ease: "easeInOut" }}
     />
   );
 }
 
-function LaborEdge({ phrase }: { phrase: string }) {
+// ════════════════════════════════════════════════════════════════════════
+// Permission denied / fallback — Liquid Glass card on a darkened scrim
+// ════════════════════════════════════════════════════════════════════════
+function PermissionFallback({
+  error,
+  onRetry,
+  onUseGallery,
+}: {
+  error: string | null;
+  onRetry: () => void;
+  onUseGallery: () => void;
+}) {
   return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center"
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+      className="absolute inset-0 z-30 flex items-center justify-center px-5"
+      style={{
+        background: "rgba(0,0,0,0.55)",
+        backdropFilter: "blur(40px) saturate(160%)",
+        WebkitBackdropFilter: "blur(40px) saturate(160%)",
+      }}
     >
-      <AnimatePresence mode="wait">
-        <motion.span
-          key={phrase}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="rounded-full bg-black/45 px-2.5 py-1 font-mono text-[10px] tracking-wide text-cyan-200 backdrop-blur"
+      <motion.div
+        initial={{ y: 16, scale: 0.98, opacity: 0 }}
+        animate={{ y: 0, scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 320, damping: 26 }}
+        className="w-full max-w-[360px] rounded-[28px] p-6 text-center"
+        style={{
+          background: "rgba(255,255,255,0.10)",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          border: "1px solid rgba(255,255,255,0.22)",
+          boxShadow:
+            "0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.30)",
+        }}
+      >
+        <div
+          className="mx-auto flex size-16 items-center justify-center rounded-3xl"
+          style={{
+            background: "rgba(255,255,255,0.10)",
+            border: "1px solid rgba(255,255,255,0.22)",
+          }}
         >
-          {phrase}
-        </motion.span>
-      </AnimatePresence>
-    </div>
+          <CameraOff className="size-7 text-white/85" />
+        </div>
+        <h2 className="mt-4 text-balance text-[18px] font-semibold tracking-tight text-white">
+          Mika chưa được phép xem camera
+        </h2>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">
+          {error ??
+            "Bạn có thể bật lại quyền camera trong cài đặt — hoặc tải ảnh có sẵn ngay tại đây."}
+        </p>
+        <div className="mt-5 flex flex-col items-stretch gap-2.5">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="h-12 rounded-full bg-white px-6 text-[14px] font-semibold text-foreground transition-opacity hover:opacity-90"
+          >
+            Thử lại camera
+          </button>
+          <button
+            type="button"
+            onClick={onUseGallery}
+            className="flex h-12 items-center justify-center gap-2 rounded-full px-6 text-[14px] font-semibold text-white"
+            style={{
+              background: "rgba(255,255,255,0.10)",
+              border: "1px solid rgba(255,255,255,0.22)",
+            }}
+          >
+            <ImagePlus className="size-4" />
+            Tải ảnh có sẵn
+          </button>
+        </div>
+        <p className="mt-4 flex items-center justify-center gap-1 text-[11px] text-white/55">
+          <Sparkles className="size-3" />
+          Privacy-first · Camera chạy local trên trình duyệt
+        </p>
+      </motion.div>
+    </motion.div>
   );
 }

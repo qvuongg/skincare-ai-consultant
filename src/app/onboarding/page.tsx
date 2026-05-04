@@ -287,6 +287,18 @@ export default function OnboardingPage() {
         className="relative z-10 mx-auto flex w-full max-w-[480px] flex-1 flex-col"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
+        {/* Photo Scan renders as a full-bleed `absolute inset-0` layer over */}
+        {/* the column. It must live OUTSIDE <main> + the inner */}
+        {/* AnimatePresence so the slide-transition's transform doesn't */}
+        {/* become its containing block — otherwise the video gets clipped */}
+        {/* to <main>'s padded box instead of filling the full 480px column. */}
+        {/* The sticky header below stays on top via z-30. */}
+        <AnimatePresence>
+          {stepKey === "photo" && (
+            <StepPhotoScan key="photo-scan" onCapture={handleCapture} />
+          )}
+        </AnimatePresence>
+
         <header
           className="sticky z-30 px-5 pt-3 pb-2 sm:px-6"
           style={{ top: "env(safe-area-inset-top)" }}
@@ -386,9 +398,9 @@ export default function OnboardingPage() {
                   onNext={next}
                 />
               )}
-              {stepKey === "photo" && (
-                <StepPhotoScan onCapture={handleCapture} />
-              )}
+              {/* "photo" step renders OUTSIDE this AnimatePresence (above) */}
+              {/* as a full-bleed absolute layer — see comment near the */}
+              {/* outer <AnimatePresence>. */}
               {stepKey === "review" && (
                 <StepReview
                   loading={analysisLoading}
