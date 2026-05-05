@@ -141,9 +141,9 @@ export function StepEnvironment({
                 className="relative isolate w-full overflow-hidden p-4 text-left focus:outline-none"
                 style={{
                   borderRadius: "1.5rem",
-                  background: `linear-gradient(135deg, ${opt.tint}, rgba(255,255,255,0.55))`,
-                  backdropFilter: "blur(40px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  background: `linear-gradient(135deg, ${opt.tint}, rgba(255,255,255,0.66))`,
+                  backdropFilter: "blur(16px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(16px) saturate(180%)",
                   border: "1px solid rgba(255,255,255,0.6)",
                   boxShadow: selected
                     ? `0 22px 48px -12px ${opt.glow}, 0 0 0 2px ${opt.glow}, inset 0 1px 0 rgba(255,255,255,0.85)`
@@ -230,9 +230,9 @@ export function StepEnvironment({
                 className="mt-1 flex items-center gap-3 px-4"
                 style={{
                   borderRadius: "1.25rem",
-                  background: "rgba(255,255,255,0.55)",
-                  backdropFilter: "blur(40px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  background: "rgba(255,255,255,0.66)",
+                  backdropFilter: "blur(16px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(16px) saturate(180%)",
                   border: "1px solid rgba(255,255,255,0.65)",
                   boxShadow:
                     "0 10px 28px rgba(31,38,135,0.08), inset 0 1px 0 rgba(255,255,255,0.85)",

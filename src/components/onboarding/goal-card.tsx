@@ -72,7 +72,11 @@ export function GoalCard({
       whileTap={{ scale: 0.985 }}
       transition={{ type: "spring", stiffness: 420, damping: 16, mass: 0.8 }}
       className="group/card relative w-full text-left focus:outline-none"
-      style={{ borderRadius: "2rem" }}
+      style={{
+        borderRadius: "2rem",
+        willChange: "transform",
+        transform: "translateZ(0)",
+      }}
     >
       <motion.div
         animate={{
@@ -84,9 +88,9 @@ export function GoalCard({
         className="relative isolate overflow-hidden p-5 sm:p-6"
         style={{
           borderRadius: "2rem",
-          background: `linear-gradient(135deg, ${tokens.tint} 0%, rgba(255,255,255,0.55) 60%, rgba(255,255,255,0.35) 100%)`,
-          backdropFilter: "blur(40px) saturate(180%)",
-          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          background: `linear-gradient(135deg, ${tokens.tint} 0%, rgba(255,255,255,0.66) 60%, rgba(255,255,255,0.48) 100%)`,
+          backdropFilter: "blur(16px) saturate(180%)",
+          WebkitBackdropFilter: "blur(16px) saturate(180%)",
           border: "1px solid rgba(255, 255, 255, 0.55)",
         }}
       >

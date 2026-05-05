@@ -100,9 +100,9 @@ export function LiquidGlassSlider({
         className="relative h-[76px] w-full cursor-pointer touch-none select-none overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/30"
         style={{
           borderRadius: "1.75rem",
-          background: "rgba(255,255,255,0.45)",
-          backdropFilter: "blur(40px) saturate(180%)",
-          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          background: "rgba(255,255,255,0.58)",
+          backdropFilter: "blur(16px) saturate(180%)",
+          WebkitBackdropFilter: "blur(16px) saturate(180%)",
           border: "1px solid rgba(255,255,255,0.6)",
           boxShadow:
             "inset 0 1px 0 rgba(255,255,255,0.85), inset 0 -1px 0 rgba(255,255,255,0.25), 0 10px 28px rgba(31,38,135,0.10)",

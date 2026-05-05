@@ -2,7 +2,6 @@
 
 import {
   motion,
-  useReducedMotion,
   useScroll,
   useTransform,
   type Variants,
@@ -17,6 +16,7 @@ import {
 import { useRouter } from "next/navigation";
 
 import { MeshGradient } from "@/components/onboarding/mesh-gradient";
+import { useLowPower } from "@/lib/hooks/use-low-power";
 
 type Byte = {
   id: string;
@@ -87,14 +87,18 @@ const heroVariants: Variants = {
 
 export function HomeClient() {
   const router = useRouter();
-  const reduced = useReducedMotion();
+  const { reduced, isMobile } = useLowPower();
   const { scrollY } = useScroll();
 
   // Parallax — three independent transforms so each card lags scroll by a
-  // different amount, producing a depth illusion across z-layers.
-  const y1 = useTransform(scrollY, [0, 400], [0, reduced ? 0 : -10]);
-  const y2 = useTransform(scrollY, [0, 400], [0, reduced ? 0 : -26]);
-  const y3 = useTransform(scrollY, [0, 400], [0, reduced ? 0 : -42]);
+  // different amount, producing a depth illusion across z-layers. Disabled
+  // on mobile (the depth illusion barely reads at phone viewport sizes,
+  // but the per-frame scroll work is just as costly there) and when the
+  // user prefers reduced motion.
+  const noParallax = reduced || isMobile;
+  const y1 = useTransform(scrollY, [0, 400], [0, noParallax ? 0 : -10]);
+  const y2 = useTransform(scrollY, [0, 400], [0, noParallax ? 0 : -26]);
+  const y3 = useTransform(scrollY, [0, 400], [0, noParallax ? 0 : -42]);
   const yOffsets = [y1, y2, y3];
 
   const startScan = () => router.push("/onboarding");
@@ -173,6 +177,8 @@ export function HomeClient() {
                 border: "1px solid rgba(255,255,255,0.75)",
                 boxShadow:
                   "0 14px 36px rgba(168,85,247,0.18), inset 0 1px 0 rgba(255,255,255,0.95)",
+                willChange: "transform",
+                transform: "translateZ(0)",
               }}
             >
               {/* Specular highlight on top edge */}
@@ -226,7 +232,11 @@ export function HomeClient() {
                         },
                       }
                 }
-                style={{ y: yOffsets[idx] }}
+                style={{
+                  y: yOffsets[idx],
+                  willChange: "transform",
+                  transform: "translateZ(0)",
+                }}
                 onClick={startScan}
                 className="cursor-pointer"
               >
@@ -262,6 +272,8 @@ export function HomeClient() {
             border: "1px solid rgba(255,255,255,0.45)",
             boxShadow:
               "0 18px 44px rgba(168,85,247,0.32), inset 0 1px 0 rgba(255,255,255,0.55)",
+            willChange: "transform",
+            transform: "translateZ(0)",
           }}
         >
           <span

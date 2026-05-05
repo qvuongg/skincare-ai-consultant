@@ -154,13 +154,15 @@ export function StepSkinType({ value, onChange, onNext }: Props) {
 
               {selected && (
                 <motion.span
-                  layoutId="skin-type-glow"
                   aria-hidden
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.55 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                   className="pointer-events-none absolute inset-0"
                   style={{
                     borderRadius: "1.75rem",
                     background: `radial-gradient(circle at 80% 0%, ${s.glow}, transparent 55%)`,
-                    opacity: 0.55,
                   }}
                 />
               )}

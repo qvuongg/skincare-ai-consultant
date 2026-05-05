@@ -119,9 +119,9 @@ export function StepDiet({ value, onChange, onNext }: Props) {
                 borderRadius: "9999px",
                 background: selected
                   ? `linear-gradient(135deg, ${opt.tint}, rgba(255,255,255,0.65))`
-                  : "linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0.4))",
-                backdropFilter: "blur(40px) saturate(180%)",
-                WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  : "linear-gradient(135deg, rgba(255,255,255,0.65), rgba(255,255,255,0.52))",
+                backdropFilter: "blur(16px) saturate(180%)",
+                WebkitBackdropFilter: "blur(16px) saturate(180%)",
                 border: selected
                   ? "1px solid rgba(255,255,255,0.85)"
                   : "1px solid rgba(255,255,255,0.55)",

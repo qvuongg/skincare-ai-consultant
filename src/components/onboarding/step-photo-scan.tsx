@@ -1039,9 +1039,9 @@ function PermissionFallback({
       transition={{ duration: 0.25 }}
       className="absolute inset-0 z-30 flex items-center justify-center px-5"
       style={{
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(40px) saturate(160%)",
-        WebkitBackdropFilter: "blur(40px) saturate(160%)",
+        background: "rgba(0,0,0,0.66)",
+        backdropFilter: "blur(16px) saturate(160%)",
+        WebkitBackdropFilter: "blur(16px) saturate(160%)",
       }}
     >
       <motion.div
@@ -1050,9 +1050,9 @@ function PermissionFallback({
         transition={{ type: "spring", stiffness: 320, damping: 26 }}
         className="w-full max-w-[360px] rounded-[28px] p-6 text-center"
         style={{
-          background: "rgba(255,255,255,0.10)",
-          backdropFilter: "blur(40px) saturate(180%)",
-          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          background: "rgba(255,255,255,0.16)",
+          backdropFilter: "blur(16px) saturate(180%)",
+          WebkitBackdropFilter: "blur(16px) saturate(180%)",
           border: "1px solid rgba(255,255,255,0.22)",
           boxShadow:
             "0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.30)",
