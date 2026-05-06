@@ -23,7 +23,10 @@ import {
   StepReview,
   type AnalysisResult,
 } from "@/components/onboarding/step-review";
-import { StepSkinType } from "@/components/onboarding/step-skin-type";
+import {
+  StepSkinType,
+  getSkinTypeLabel,
+} from "@/components/onboarding/step-skin-type";
 import { compressImage } from "@/lib/image/compress";
 
 const STEP_KEYS = [
@@ -167,20 +170,22 @@ export default function OnboardingPage() {
   }, []);
 
   const runAnalysis = useCallback(
-    async (file: File, snapshot: FormData) => {
+    async (files: File[], snapshot: FormData) => {
       setAnalysisError(null);
       setAnalysisResult(null);
       setAnalysisLoading(true);
       const start = Date.now();
 
       try {
-        // Reuse compression pipeline from Task 7 — 2K, JPEG q=0.9.
-        const compressed = await compressImage(file, {
-          maxWidth: 2048,
-          quality: 0.9,
-        });
-        const dataUrl = `data:${compressed.mimeType};base64,${compressed.base64}`;
-        setPreviewUrl(dataUrl);
+        // Compress all images.
+        const compressedImages = await Promise.all(
+          files.map(f => compressImage(f, { maxWidth: 2048, quality: 0.9 }))
+        );
+        const frontCompressed = compressedImages[0];
+        if (frontCompressed) {
+          const dataUrl = `data:${frontCompressed.mimeType};base64,${frontCompressed.base64}`;
+          setPreviewUrl(dataUrl);
+        }
 
         const onboardingContext = {
           user_name: snapshot.user_name,
@@ -215,11 +220,11 @@ export default function OnboardingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            image: {
-              mimeType: compressed.mimeType,
-              data: compressed.base64,
-            },
-            onboardingContext,
+            images: compressedImages.map((c) => ({
+              mimeType: c.mimeType,
+              data: c.base64,
+            })),
+            onboarding: onboardingContext,
           }),
         });
 
@@ -256,12 +261,13 @@ export default function OnboardingPage() {
   );
 
   const handleCapture = useCallback(
-    (file: File) => {
+    (files: File[]) => {
+      if (!files.length) return;
       const snapshot = data;
       submitOnboarding(snapshot);
       setDirection(1);
       setStepIndex(STEP_KEYS.indexOf("review"));
-      void runAnalysis(file, snapshot);
+      void runAnalysis(files, snapshot);
     },
     [data, submitOnboarding, runAnalysis]
   );
@@ -411,6 +417,7 @@ export default function OnboardingPage() {
                   location={data.lifestyle.location}
                   sleepHours={data.lifestyle.sleep_hours}
                   waterLiters={data.lifestyle.water_liters}
+                  skinType={getSkinTypeLabel(data.skin_type)}
                   previewUrl={previewUrl}
                   onRetry={restartScan}
                 />

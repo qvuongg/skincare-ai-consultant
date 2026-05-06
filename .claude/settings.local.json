@@ -11,7 +11,8 @@
       "Bash(npm install *)",
       "Bash(PORT=3456 npm run *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3456/)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3456/onboarding)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3456/onboarding)",
+      "Bash(git stash *)"
     ]
   }
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import type { FaceLandmarker } from "@mediapipe/tasks-vision";
+import type { FaceLandmarker, NormalizedLandmark } from "@mediapipe/tasks-vision";
 import { useMotionValue, type MotionValue } from "framer-motion";
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { getFaceLandmarker } from "./face-landmarker";
 
@@ -38,11 +38,17 @@ const LOST_TIMEOUT_MS = 250;
 // long enough to read instead of flickering on/off every frame.
 const TOO_FAST_HOLD_MS = 1500;
 
+// Face bounding-box area (normalized to [0,1]²) above which the user is too
+// close to the camera. Calibrated against a typical selfie crop where the
+// face fills ~35% of the frame; > 50% reads as "filling most of the screen".
+const TOO_CLOSE_AREA_THRESHOLD = 0.5;
+
 export type HeadPose = "straight" | "left" | "right" | "between" | "lost";
 
 export type HeadPoseSnapshot = {
   pose: HeadPose;
   tooFast: boolean;
+  tooClose: boolean;
   ready: boolean; // landmarker loaded
   loadError: boolean;
 };
@@ -51,6 +57,10 @@ export type UseHeadPoseResult = {
   // High-frequency signal — bind directly to motion-based UI (progress rings)
   // so we don't trigger a React re-render every animation frame.
   ratio: MotionValue<number>;
+  // Latest face landmarks — written from inside the detection RAF, read from
+  // a sibling drawing RAF in the consumer (e.g. wireframe canvas). Using a
+  // ref means landmark updates don't cost a React re-render.
+  landmarksRef: RefObject<NormalizedLandmark[] | null>;
   // Coarse-grained, re-render-safe view of the same stream.
   snapshot: HeadPoseSnapshot;
 };
@@ -60,9 +70,11 @@ export function useHeadPose(
   enabled: boolean
 ): UseHeadPoseResult {
   const ratio = useMotionValue(Number.NaN);
+  const landmarksRef = useRef<NormalizedLandmark[] | null>(null);
   const [snapshot, setSnapshot] = useState<HeadPoseSnapshot>({
     pose: "lost",
     tooFast: false,
+    tooClose: false,
     ready: false,
     loadError: false,
   });
@@ -81,6 +93,7 @@ export function useHeadPose(
 
     let curPose: HeadPose = "lost";
     let curTooFast = false;
+    let curTooClose = false;
 
     const commit = (next: Partial<HeadPoseSnapshot>) => {
       if (cancelled) return;
@@ -89,6 +102,7 @@ export function useHeadPose(
         if (
           merged.pose === s.pose &&
           merged.tooFast === s.tooFast &&
+          merged.tooClose === s.tooClose &&
           merged.ready === s.ready &&
           merged.loadError === s.loadError
         ) {
@@ -130,22 +144,49 @@ export function useHeadPose(
 
         const landmarks = result.faceLandmarks?.[0];
         if (!landmarks) {
+          landmarksRef.current = null;
           if (now - lastSeen > LOST_TIMEOUT_MS && curPose !== "lost") {
             curPose = "lost";
             ratio.set(Number.NaN);
             commit({ pose: "lost" });
           }
-          // Even when face is lost, decay the too-fast flag so it doesn't
+          // Even when face is lost, decay transient flags so they don't
           // stick forever after a flicker.
           if (curTooFast && now > tooFastUntil) {
             curTooFast = false;
             commit({ tooFast: false });
           }
+          if (curTooClose) {
+            curTooClose = false;
+            commit({ tooClose: false });
+          }
           raf = requestAnimationFrame(tick);
           return;
         }
 
+        landmarksRef.current = landmarks;
         lastSeen = now;
+
+        // Distance check: bounding-box area of all 478 landmarks in
+        // normalized [0,1]² space. > threshold → user is too close.
+        let minX = 1;
+        let maxX = 0;
+        let minY = 1;
+        let maxY = 0;
+        for (let i = 0; i < landmarks.length; i++) {
+          const p = landmarks[i];
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        const area = (maxX - minX) * (maxY - minY);
+        const nextTooClose = area > TOO_CLOSE_AREA_THRESHOLD;
+        if (nextTooClose !== curTooClose) {
+          curTooClose = nextTooClose;
+          commit({ tooClose: nextTooClose });
+        }
+
         const nose = landmarks[NOSE];
         const right = landmarks[RIGHT_EDGE];
         const left = landmarks[LEFT_EDGE];
@@ -203,5 +244,5 @@ export function useHeadPose(
     };
   }, [enabled, videoRef, ratio]);
 
-  return { ratio, snapshot };
+  return { ratio, landmarksRef, snapshot };
 }

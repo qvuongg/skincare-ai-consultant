@@ -22,6 +22,23 @@ type SkinTypeDef = {
   glow: string;
 };
 
+// Vietnamese labels for the four skin-type IDs. Exported so the report
+// hero can render the user's self-reported type as "Da dầu" instead of
+// the raw enum id ("oily"). Falls back to the input string when the id
+// isn't one of the four — keeps unknown values rendering rather than
+// silently going blank.
+export const SKIN_TYPE_LABELS: Record<string, string> = {
+  oily: "Da dầu",
+  dry: "Da khô",
+  combo: "Da hỗn hợp",
+  normal: "Da thường",
+};
+
+export function getSkinTypeLabel(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return SKIN_TYPE_LABELS[id] ?? id;
+}
+
 const SKIN_TYPES: SkinTypeDef[] = [
   {
     id: "oily",

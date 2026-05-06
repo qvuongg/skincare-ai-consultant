@@ -1,112 +1,92 @@
 "use client";
 
-import { AnimatePresence, motion, useTransform } from "framer-motion";
-import {
-  CameraOff,
-  Check,
-  ImagePlus,
-  ScanFace,
-  Sparkles,
-} from "lucide-react";
+import { FaceLandmarker } from "@mediapipe/tasks-vision";
+import { AnimatePresence, motion } from "framer-motion";
+import { CameraOff, Check, ImagePlus, ScanFace, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  LEFT_THRESHOLD,
-  RIGHT_THRESHOLD,
-  STRAIGHT_HI,
-  STRAIGHT_LO,
-  useHeadPose,
-} from "@/lib/mediapipe/use-head-pose";
+import { useHeadPose } from "@/lib/mediapipe/use-head-pose";
 
 type Props = {
-  onCapture: (file: File) => void;
+  onCapture: (files: File[]) => void;
 };
 
-type Phase = "requesting" | "denied" | "streaming" | "captured";
+type Phase = "requesting" | "denied" | "streaming" | "done";
 
-// Sub-state inside `streaming`. Drives both the active instruction and the
-// progress-ring fill source. Sequence:
-//   lighting → straight → left → right → final → (capture)
-type SubPhase = "lighting" | "straight" | "left" | "right" | "final";
+// Capture state machine: idle (camera not yet streaming) → front → left →
+// right → done. Each pose-gated step waits for the user to hold the target
+// pose (and pass lighting / distance gates) for STEP_HOLD_MS, then silently
+// snapshots a frame and advances.
+type CaptureStep = "idle" | "front" | "left" | "right" | "done";
 
-type Instruction = {
-  text: string;
-  emoji?: string;
+const STEP_HOLD_MS: Record<"front" | "left" | "right", number> = {
+  front: 700,
+  left: 600,
+  right: 600,
 };
 
-const INSTRUCTIONS: Instruction[] = [
-  { text: "Nhìn thẳng vào ống kính…", emoji: "👀" },
-  { text: "Nghiêng mặt sang trái một chút…", emoji: "↩️" },
-  { text: "Nghiêng mặt sang phải nào…", emoji: "↪️" },
-  { text: "Đủ ánh sáng rồi, giữ nguyên nhé!", emoji: "✨" },
-];
+// `tooClose` must hold for this long before the warning shows — keeps a
+// brief lean-in from popping the bar on/off every frame.
+const TOO_CLOSE_HOLD_MS = 400;
 
-// Map each sub-phase to the index of the instruction we want to display.
-// `lighting` and `straight` share index 0 — the lighting check gates entry
-// to the straight-pose check, but the user-facing copy is identical.
-const SUB_PHASE_TO_INSTRUCTION: Record<SubPhase, number> = {
-  lighting: 0,
-  straight: 0,
-  left: 1,
-  right: 2,
-  final: 3,
-};
-
-const LABOR_PHRASES = [
-  "Measuring humidity…",
-  "Detecting T-zone…",
-  "Checking pigmentation…",
-  "Scanning pore density…",
-  "Mapping micro-textures…",
-  "Calibrating color tone…",
-];
-
-const SCAN_STEP_MS = 1700;
-const SCAN_TOTAL_MS = SCAN_STEP_MS * INSTRUCTIONS.length;
 const LOW_LIGHT_THRESHOLD = 70;
 const LOW_LIGHT_SAMPLE_INTERVAL_MS = 700;
 
-// Hold-times to debounce pose transitions — a brief flicker into the right
-// pose shouldn't fire a transition.
-const LIGHTING_OK_HOLD_MS = 800;
-const STRAIGHT_HOLD_MS = 700;
+// Wireframe "scan locked" cue — when a capture lands, draw the mesh at
+// boosted opacity for this window so the user feels the AI confirm the angle.
+const FLASH_DURATION_MS = 320;
 
-// If MediaPipe hasn't loaded by then, OR the user can't pass the lighting/
-// straight gates within this window, drop to the timer-driven fallback flow.
-// Without this the state machine can stall forever if the CDN is slow, the
-// model 404s, or the user covers the camera.
-const AI_STALL_TIMEOUT_MS = 6000;
-
-// SVG mask: blur+darken everywhere EXCEPT the central rounded scan zone.
-const SCAN_VIGNETTE_MASK =
-  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><mask id='m'><rect width='100' height='100' fill='white'/><rect x='10' y='18' width='80' height='64' rx='12' ry='12' fill='black'/></mask></defs><rect width='100' height='100' fill='white' mask='url(%23m)'/></svg>\")";
+const STEP_COPY: Record<
+  CaptureStep,
+  { headline: string; status: string; emoji?: string }
+> = {
+  idle: { headline: "Mika đang khởi động camera…", status: "" },
+  front: {
+    headline: "Nhìn thẳng vào ống kính",
+    status: "Đang lấy thông tin chính diện…",
+    emoji: "👀",
+  },
+  left: {
+    headline: "Quay mặt sang trái một chút",
+    status: "Đang lấy thông tin góc trái…",
+    emoji: "↩️",
+  },
+  right: {
+    headline: "Giờ quay mặt sang phải nào",
+    status: "Đang lấy thông tin góc phải…",
+    emoji: "↪️",
+  },
+  done: {
+    headline: "Scan hoàn tất ✨",
+    status: "Đang chuyển sang phân tích…",
+  },
+};
 
 export function StepPhotoScan({ onCapture }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const wireframeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const samplerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const requestedRef = useRef(false);
+
+  // Captured Files accumulate here so the state-machine effect doesn't have
+  // to round-trip through React state between async `toBlob` resolutions.
+  const filesRef = useRef<File[]>([]);
+  // Timestamp until which the wireframe should render at flash-opacity.
+  const flashUntilRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>("requesting");
   const [error, setError] = useState<string | null>(null);
-  const [subPhase, setSubPhase] = useState<SubPhase>("lighting");
-  const [fallbackIdx, setFallbackIdx] = useState(0);
-  const [useFallback, setUseFallback] = useState(false);
-  const [laborIdx, setLaborIdx] = useState(0);
+  const [step, setStep] = useState<CaptureStep>("idle");
   const [lowLight, setLowLight] = useState(false);
-  const [shutter, setShutter] = useState(false);
+  const [tooCloseStable, setTooCloseStable] = useState(false);
 
-  // ─── Head-pose tracking (MediaPipe Face Landmarker) ──────────────────
-  // Active only while the camera is streaming AND we haven't fallen back
-  // to the timer-driven flow. The hook lazy-loads the WASM/model on first
-  // call and is RAF-driven.
-  const { ratio, snapshot } = useHeadPose(
+  const { snapshot, landmarksRef } = useHeadPose(
     videoRef,
-    phase === "streaming" && !useFallback
+    phase === "streaming"
   );
 
-  // Hard-stop the camera when we're done with it.
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -142,10 +122,9 @@ export function StepPhotoScan({ onCapture }: Props) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
+      filesRef.current = [];
       setPhase("streaming");
-      setSubPhase("lighting");
-      setFallbackIdx(0);
-      setUseFallback(false);
+      setStep("front");
     } catch {
       setError(
         "Mika không truy cập được camera 😢 — bạn có thể tải ảnh có sẵn nhé."
@@ -154,133 +133,147 @@ export function StepPhotoScan({ onCapture }: Props) {
     }
   }, []);
 
-  // Auto-request camera on mount.
   useEffect(() => {
     if (requestedRef.current) return;
     requestedRef.current = true;
     void requestCamera();
   }, [requestCamera]);
 
-  const captureNow = useCallback(() => {
+  // ─── Silent frame grab ────────────────────────────────────────────────
+  // Mirrors the captured frame so the saved JPEG matches what the user saw
+  // in the live preview (which is also CSS-flipped via scaleX(-1)).
+  const grabFrame = useCallback((label: string): Promise<File | null> => {
+    return new Promise((resolve) => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return resolve(null);
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) return resolve(null);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(null);
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return resolve(null);
+          resolve(
+            new File([blob], `selfie-${label}-${Date.now()}.jpg`, {
+              type: "image/jpeg",
+            })
+          );
+        },
+        "image/jpeg",
+        0.95
+      );
+    });
+  }, []);
+
+  // ─── State-machine: pose + lighting + distance gating ────────────────
+  useEffect(() => {
+    if (phase !== "streaming") return;
+    if (step === "idle" || step === "done") return;
+
+    let ok = false;
+    if (step === "front") {
+      ok =
+        snapshot.pose === "straight" && !lowLight && !tooCloseStable;
+    } else if (step === "left") {
+      ok = snapshot.pose === "left";
+    } else if (step === "right") {
+      ok = snapshot.pose === "right";
+    }
+    if (!ok) return;
+
+    const t = setTimeout(() => {
+      void (async () => {
+        const file = await grabFrame(step);
+        if (!file) return;
+        filesRef.current = [...filesRef.current, file];
+        flashUntilRef.current = performance.now() + FLASH_DURATION_MS;
+        if (step === "front") setStep("left");
+        else if (step === "left") setStep("right");
+        else if (step === "right") {
+          setStep("done");
+          setPhase("done");
+          stopStream();
+          onCapture(filesRef.current);
+        }
+      })();
+    }, STEP_HOLD_MS[step]);
+    return () => clearTimeout(t);
+  }, [
+    phase,
+    step,
+    snapshot.pose,
+    lowLight,
+    tooCloseStable,
+    grabFrame,
+    onCapture,
+    stopStream,
+  ]);
+
+  // ─── tooClose debounce — only flag after sustained 400ms ─────────────
+  // Both branches go through setTimeout (the false branch with 0ms) so the
+  // setState always runs async — keeps React Compiler / `set-state-in-effect`
+  // happy. Same pattern as the legacy `useFallback` defer.
+  useEffect(() => {
+    const delay = snapshot.tooClose ? TOO_CLOSE_HOLD_MS : 0;
+    const t = setTimeout(() => setTooCloseStable(snapshot.tooClose), delay);
+    return () => clearTimeout(t);
+  }, [snapshot.tooClose]);
+
+  // ─── Wireframe canvas RAF ────────────────────────────────────────────
+  // One Path2D per frame, single stroke — much cheaper than DrawingUtils
+  // (which strokes per connector) on the ~2.5k connectors in the tesselation.
+  // Keeps the 60fps target on mid-tier phones.
+  useEffect(() => {
+    if (phase !== "streaming") return;
+    const canvas = wireframeCanvasRef.current;
     const video = videoRef.current;
-    if (!video || video.readyState < 2) return;
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (!w || !h) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    if (!canvas || !video) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, w, h);
 
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const file = new File([blob], `selfie-${Date.now()}.jpg`, {
-          type: "image/jpeg",
-        });
-        stopStream();
-        onCapture(file);
-      },
-      "image/jpeg",
-      0.95
-    );
-  }, [onCapture, stopStream]);
+    const TESS = FaceLandmarker.FACE_LANDMARKS_TESSELATION;
+    let raf: number | null = null;
 
-  // ─── AI state machine (pose-driven) ──────────────────────────────────
-  // Each branch sets a hold-timer that auto-cancels via the effect cleanup
-  // when the dependency it's gated on flips. Reaching `final` triggers the
-  // capture effect below.
-  useEffect(() => {
-    if (phase !== "streaming" || useFallback) return;
-
-    if (subPhase === "lighting" && !lowLight) {
-      const t = setTimeout(() => setSubPhase("straight"), LIGHTING_OK_HOLD_MS);
-      return () => clearTimeout(t);
-    }
-    if (subPhase === "straight" && snapshot.pose === "straight") {
-      const t = setTimeout(() => setSubPhase("left"), STRAIGHT_HOLD_MS);
-      return () => clearTimeout(t);
-    }
-    if (subPhase === "left" && snapshot.pose === "left") {
-      // Hold briefly so a single noisy frame near the threshold doesn't
-      // pop us forward — and so the progress ring visibly hits 100% before
-      // we move on.
-      const t = setTimeout(() => setSubPhase("right"), 250);
-      return () => clearTimeout(t);
-    }
-    if (subPhase === "right" && snapshot.pose === "right") {
-      const t = setTimeout(() => setSubPhase("final"), 250);
-      return () => clearTimeout(t);
-    }
-  }, [phase, useFallback, subPhase, snapshot.pose, lowLight]);
-
-  // ─── Fallback gate ───────────────────────────────────────────────────
-  // If MediaPipe never loads (CDN down, model 404, GPU rejected) OR the
-  // user can't pass the lighting/straight gates within the window, drop
-  // to the timer-driven flow so the scan completes anyway.
-  useEffect(() => {
-    if (phase !== "streaming" || useFallback) return;
-    if (snapshot.loadError) {
-      // Defer one tick so the setState happens from a callback, not the
-      // effect body — keeps the React Compiler / lint rule happy.
-      const tErr = setTimeout(() => setUseFallback(true), 0);
-      return () => clearTimeout(tErr);
-    }
-    const t = setTimeout(() => {
-      const stalledOnGate = subPhase === "lighting" || subPhase === "straight";
-      if (!snapshot.ready || stalledOnGate) {
-        setUseFallback(true);
+    const tick = () => {
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (w && h) {
+        if (canvas.width !== w) canvas.width = w;
+        if (canvas.height !== h) canvas.height = h;
+        ctx.clearRect(0, 0, w, h);
+        const lm = landmarksRef.current;
+        if (lm && lm.length) {
+          const path = new Path2D();
+          for (let i = 0; i < TESS.length; i++) {
+            const c = TESS[i];
+            const a = lm[c.start];
+            const b = lm[c.end];
+            if (!a || !b) continue;
+            path.moveTo(a.x * w, a.y * h);
+            path.lineTo(b.x * w, b.y * h);
+          }
+          const flash = performance.now() < flashUntilRef.current;
+          ctx.strokeStyle = flash
+            ? "rgba(255, 90, 90, 0.92)"
+            : "rgba(255, 0, 0, 0.40)";
+          ctx.lineWidth = flash ? 3 : 1.4;
+          ctx.stroke(path);
+        }
       }
-    }, AI_STALL_TIMEOUT_MS);
-    return () => clearTimeout(t);
-  }, [phase, useFallback, snapshot.ready, snapshot.loadError, subPhase]);
-
-  // ─── Fallback timer cycle ────────────────────────────────────────────
-  // Mirrors the old behavior: cycles instructions on a timer and triggers
-  // capture at the end. Only runs when AI mode has bailed.
-  useEffect(() => {
-    if (phase !== "streaming" || !useFallback) return;
-    const tick = setInterval(() => {
-      setFallbackIdx((i) => Math.min(i + 1, INSTRUCTIONS.length - 1));
-    }, SCAN_STEP_MS);
-    const finish = setTimeout(() => {
-      setSubPhase("final");
-    }, SCAN_TOTAL_MS);
-    return () => {
-      clearInterval(tick);
-      clearTimeout(finish);
+      raf = requestAnimationFrame(tick);
     };
-  }, [phase, useFallback]);
-
-  // ─── final → capture (shared by AI + fallback) ───────────────────────
-  useEffect(() => {
-    if (subPhase !== "final" || phase !== "streaming") return;
-    // Defer the phase flip one tick so we're not calling setState in the
-    // effect body (lint), then run the original 650ms checkmark + 220ms
-    // shutter handoff.
-    const t0 = setTimeout(() => setPhase("captured"), 0);
-    const t1 = setTimeout(() => {
-      setShutter(true);
-      setTimeout(() => captureNow(), 220);
-    }, 650);
+    raf = requestAnimationFrame(tick);
     return () => {
-      clearTimeout(t0);
-      clearTimeout(t1);
+      if (raf !== null) cancelAnimationFrame(raf);
     };
-  }, [subPhase, phase, captureNow]);
-
-  // ─── Cycle labor-illusion phrases ────────────────────────────────────
-  useEffect(() => {
-    if (phase !== "streaming" && phase !== "captured") return;
-    const tick = setInterval(() => {
-      setLaborIdx((i) => (i + 1) % LABOR_PHRASES.length);
-    }, 1100);
-    return () => clearInterval(tick);
-  }, [phase]);
+  }, [phase, landmarksRef]);
 
   // ─── Low-light sampler ───────────────────────────────────────────────
   useEffect(() => {
@@ -319,30 +312,22 @@ export function StepPhotoScan({ onCapture }: Props) {
     }
     setError(null);
     stopStream();
-    onCapture(file);
+    onCapture([file]);
   };
 
-  const captured = phase === "captured";
   const denied = phase === "denied";
   const requesting = phase === "requesting";
+  const finished = phase === "done";
+  const copy = STEP_COPY[step];
 
-  // Resolve which instruction to display. In AI mode, derive from sub-phase;
-  // in fallback, follow the timer counter.
-  const displayInstructionIdx = useFallback
-    ? fallbackIdx
-    : SUB_PHASE_TO_INSTRUCTION[subPhase];
-
-  // Two distinct warnings per spec:
-  //   • Face-lost     → soft fade-in, calmer copy ("Mika không thấy bạn…").
-  //   • Too-fast      → elastic-bounce spring, attention-grabbing.
-  // Both are scoped to AI mode + the pose-gate sub-phases, where head
-  // tracking actually matters. `lighting`/`final` don't depend on tracking,
-  // and the gallery button is the user's escape hatch in fallback mode.
-  const isPoseGate = subPhase === "left" || subPhase === "right";
-  const trackingActive = !useFallback && isPoseGate && !captured;
-  const showFaceLost = trackingActive && snapshot.pose === "lost";
-  const showTooFast =
-    trackingActive && snapshot.pose !== "lost" && snapshot.tooFast;
+  // Top warning slot: only one warning at a time (image_9.png shows a single
+  // bar). Distance is the higher-priority physical correction so it wins
+  // over low-light, which is just a soft hint.
+  const topWarning: "tooClose" | "lowLight" | null = tooCloseStable
+    ? "tooClose"
+    : lowLight && !finished
+      ? "lowLight"
+      : null;
 
   const TITLE_TOP = "calc(env(safe-area-inset-top) + 76px)";
 
@@ -358,7 +343,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         height: "calc(100% + env(safe-area-inset-top))",
       }}
     >
-      {/* ── Layer 0 · Live video (full-bleed base) ─────────────────────── */}
+      {/* ── Layer 0 · Live video ───────────────────────────────────────── */}
       <video
         ref={videoRef}
         playsInline
@@ -368,50 +353,65 @@ export function StepPhotoScan({ onCapture }: Props) {
         style={{ transform: "scaleX(-1)" }}
       />
 
-      {/* ── Layer 1 · Vignette (blur outside scan zone) ────────────────── */}
-      {!denied && !requesting && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-[5]"
-          style={{
-            backdropFilter: "blur(4px) brightness(0.8)",
-            WebkitBackdropFilter: "blur(4px) brightness(0.8)",
-            maskImage: SCAN_VIGNETTE_MASK,
-            maskSize: "100% 100%",
-            maskRepeat: "no-repeat",
-            WebkitMaskImage: SCAN_VIGNETTE_MASK,
-            WebkitMaskSize: "100% 100%",
-            WebkitMaskRepeat: "no-repeat",
-          }}
-        />
-      )}
-
-      {/* ── Layer 2 · Squircle border glow ─────────────────────────────── */}
-      {!denied && !requesting && <SquircleGlow captured={captured} />}
-
-      {/* ── Layer 3 · Head-turn progress ring (AI mode, pose gates) ────── */}
-      {!denied && !requesting && !useFallback && isPoseGate && !captured && (
-        <HeadTurnProgressRing ratio={ratio} subPhase={subPhase} />
-      )}
-
-      {/* ── Layer 4 · 3D orbital scan rings ────────────────────────────── */}
-      {!captured && !denied && !requesting && (
-        <OrbitalScanRings subPhase={subPhase} />
-      )}
-
-      {/* ── Layer 5 · Low-light screen-flash ───────────────────────────── */}
-      <motion.div
+      {/* ── Layer 1 · Red 3D wireframe ─────────────────────────────────── */}
+      {/* Canvas mirrors the video the same way (scaleX(-1)) so MediaPipe's */}
+      {/* raw normalized landmarks land on the displayed (mirrored) face   */}
+      {/* without flipping coordinates manually. Both share object-cover so */}
+      {/* the same crop applies to landmarks and pixels.                   */}
+      <canvas
+        ref={wireframeCanvasRef}
         aria-hidden
-        className="pointer-events-none absolute inset-0 z-[6]"
-        animate={{
-          backgroundColor: lowLight
-            ? "rgba(255,255,255,0.18)"
-            : "rgba(255,255,255,0)",
-        }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="pointer-events-none absolute inset-0 z-10 size-full object-cover"
+        style={{ transform: "scaleX(-1)" }}
       />
 
-      {/* ── Layer 6 · Top floating glass title ─────────────────────────── */}
+      {/* ── Layer 2 · Top "too close" warning bar ──────────────────────── */}
+      <AnimatePresence>
+        {topWarning === "tooClose" && (
+          <motion.div
+            key="tooclose"
+            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{
+              type: "spring",
+              stiffness: 420,
+              damping: 24,
+              mass: 0.85,
+            }}
+            className="absolute left-1/2 z-[24] -translate-x-1/2 rounded-full px-4 py-2 text-center text-[12px] font-semibold tracking-tight text-white"
+            style={{
+              top: "calc(env(safe-area-inset-top) + 24px)",
+              background: "rgba(220,38,38,0.92)",
+              boxShadow:
+                "0 0 24px rgba(220,38,38,0.85), 0 0 56px rgba(220,38,38,0.55), inset 0 1px 0 rgba(255,255,255,0.25)",
+            }}
+          >
+            You are too close to your smartphone
+          </motion.div>
+        )}
+        {topWarning === "lowLight" && (
+          <motion.div
+            key="lowlight"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.3 }}
+            className="absolute left-1/2 z-20 -translate-x-1/2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-amber-50"
+            style={{
+              top: "calc(env(safe-area-inset-top) + 24px)",
+              background: "rgba(245,158,11,0.32)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              border: "1px solid rgba(255,255,255,0.20)",
+            }}
+          >
+            💡 Hơi tối — bật màn hình bù sáng cho bạn
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 3 · Header glass title ───────────────────────────────── */}
       {!denied && (
         <div
           className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-5 sm:px-6"
@@ -440,112 +440,32 @@ export function StepPhotoScan({ onCapture }: Props) {
               Bước 09 · Photo Scan
             </span>
             <h1 className="mt-1 text-balance text-[17px] font-semibold leading-tight tracking-tight text-white">
-              {captured
-                ? "Scan hoàn tất ✨"
-                : requesting
-                  ? "Đang khởi động camera…"
+              {requesting
+                ? "Đang khởi động camera…"
+                : finished
+                  ? "Scan hoàn tất ✨"
                   : "Mika đang đọc làn da bạn…"}
             </h1>
           </motion.div>
         </div>
       )}
 
-      {/* ── Layer 7 · Low-light hint chip ──────────────────────────────── */}
-      <AnimatePresence>
-        {lowLight && !captured && !denied && (
-          <motion.div
-            key="lowlight"
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.3 }}
-            className="absolute left-1/2 z-20 -translate-x-1/2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-amber-50"
-            style={{
-              top: "calc(env(safe-area-inset-top) + 168px)",
-              background: "rgba(245,158,11,0.32)",
-              backdropFilter: "blur(20px) saturate(180%)",
-              WebkitBackdropFilter: "blur(20px) saturate(180%)",
-              border: "1px solid rgba(255,255,255,0.20)",
-            }}
-          >
-            💡 Hơi tối — bật màn hình bù sáng cho bạn
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Layer 8a · "Face lost" toast (soft fade) ───────────────────── */}
-      <AnimatePresence>
-        {showFaceLost && (
-          <motion.div
-            key="face-lost"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute left-1/2 top-1/2 z-[22] -translate-x-1/2 -translate-y-1/2 rounded-2xl px-4 py-2.5 text-center text-[13px] font-semibold text-white"
-            style={{
-              background: "rgba(0,0,0,0.55)",
-              backdropFilter: "blur(24px) saturate(180%)",
-              WebkitBackdropFilter: "blur(24px) saturate(180%)",
-              border: "1px solid rgba(255,255,255,0.22)",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.40)",
-            }}
-          >
-            👀 Mika không thấy bạn, nhìn thẳng vào cam nhé!
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Layer 8b · "Too fast" toast (elastic bounce) ───────────────── */}
-      <AnimatePresence>
-        {showTooFast && (
-          <motion.div
-            key="too-fast"
-            initial={{ opacity: 0, y: 16, scale: 0.7 }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              // Elastic overshoot: the keyframes carry the bounce so it
-              // reads on devices that don't render the spring's overshoot
-              // strongly enough.
-              scale: [0.7, 1.18, 0.94, 1.06, 1],
-            }}
-            exit={{ opacity: 0, y: -8, scale: 0.94 }}
-            transition={{
-              y: { type: "spring", stiffness: 600, damping: 12, mass: 0.9 },
-              scale: { duration: 0.6, ease: [0.22, 1, 0.36, 1] },
-              opacity: { duration: 0.18 },
-            }}
-            className="absolute left-1/2 top-1/2 z-[22] -translate-x-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-[13px] font-semibold text-white"
-            style={{
-              background: "rgba(0,0,0,0.55)",
-              backdropFilter: "blur(24px) saturate(180%)",
-              WebkitBackdropFilter: "blur(24px) saturate(180%)",
-              border: "1px solid rgba(255,255,255,0.22)",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.40)",
-            }}
-          >
-            🐢 Chậm lại một chút bạn ơi…
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Layer 9 · Bottom instruction + capture controls ────────────── */}
+      {/* ── Layer 4 · Bottom instruction + silent status ───────────────── */}
       {!denied && (
         <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-3 px-5 sm:px-6"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-5 sm:px-6"
           style={{
             paddingBottom: "max(2rem, env(safe-area-inset-bottom))",
           }}
         >
-          {!captured && !requesting && (
+          {phase === "streaming" && copy.status && (
             <AnimatePresence mode="wait">
               <motion.span
-                key={laborIdx}
+                key={`status-${step}`}
                 initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 0.85, y: 0 }}
+                animate={{ opacity: 0.9, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.3 }}
+                transition={{ duration: 0.28 }}
                 className="rounded-full px-2.5 py-1 font-mono text-[10px] tracking-wide text-cyan-200"
                 style={{
                   background: "rgba(0,0,0,0.45)",
@@ -554,14 +474,14 @@ export function StepPhotoScan({ onCapture }: Props) {
                   border: "1px solid rgba(255,255,255,0.10)",
                 }}
               >
-                {LABOR_PHRASES[laborIdx]}
+                {copy.status}
               </motion.span>
             </AnimatePresence>
           )}
 
           <div className="pointer-events-auto w-full max-w-[360px]">
             <AnimatePresence mode="wait">
-              {captured ? (
+              {finished ? (
                 <motion.div
                   key="done"
                   initial={{ opacity: 0, y: 8, scale: 0.96 }}
@@ -584,10 +504,10 @@ export function StepPhotoScan({ onCapture }: Props) {
                 >
                   <span className="flex items-center gap-2 text-[13px] font-semibold text-emerald-50">
                     <Check className="size-4" strokeWidth={3} />
-                    Scan hoàn tất, giữ nguyên 1s nha!
+                    Đã chụp đủ 3 góc, giữ nguyên 1s nha!
                   </span>
                   <p className="text-[11px] text-white/65">
-                    Đang chuyển sang phân tích…
+                    Mika đang chuyển sang phân tích…
                   </p>
                 </motion.div>
               ) : requesting ? (
@@ -610,7 +530,7 @@ export function StepPhotoScan({ onCapture }: Props) {
                 </motion.div>
               ) : (
                 <motion.div
-                  key={`instr-${displayInstructionIdx}`}
+                  key={`instr-${step}`}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
@@ -625,16 +545,14 @@ export function StepPhotoScan({ onCapture }: Props) {
                       "0 14px 36px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
                   }}
                 >
-                  <span aria-hidden>
-                    {INSTRUCTIONS[displayInstructionIdx].emoji}
-                  </span>
-                  {INSTRUCTIONS[displayInstructionIdx].text}
+                  {copy.emoji && <span aria-hidden>{copy.emoji}</span>}
+                  {copy.headline}
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
 
-          {!captured && (
+          {!finished && (
             <button
               type="button"
               onClick={() => galleryInputRef.current?.click()}
@@ -655,41 +573,7 @@ export function StepPhotoScan({ onCapture }: Props) {
         </div>
       )}
 
-      {/* ── Layer 10 · Center checkmark on capture ─────────────────────── */}
-      <AnimatePresence>
-        {captured && (
-          <motion.span
-            key="check"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.8, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 460, damping: 18 }}
-            className="absolute left-1/2 top-1/2 z-30 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-500 text-white"
-            style={{
-              boxShadow:
-                "0 16px 40px rgba(16,185,129,0.55), inset 0 1px 0 rgba(255,255,255,0.5)",
-            }}
-          >
-            <Check className="size-10" strokeWidth={3.2} />
-          </motion.span>
-        )}
-      </AnimatePresence>
-
-      {/* ── Layer 11 · Shutter flash ───────────────────────────────────── */}
-      <AnimatePresence>
-        {shutter && (
-          <motion.span
-            key="shutter"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className="pointer-events-none absolute inset-0 z-40 bg-white"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* ── Layer 12 · Permission denied overlay ───────────────────────── */}
+      {/* ── Layer 5 · Permission denied overlay ────────────────────────── */}
       <AnimatePresence>
         {denied && (
           <PermissionFallback
@@ -708,314 +592,6 @@ export function StepPhotoScan({ onCapture }: Props) {
         onChange={(e) => handleGalleryFile(e.target.files?.[0])}
       />
     </motion.div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// Squircle border glow — three pulsing rings + a static crisp inner border.
-// ════════════════════════════════════════════════════════════════════════
-function SquircleGlow({ captured }: { captured: boolean }) {
-  const tint = captured ? "34,197,94" : "165,243,252";
-  const innerBorder = captured
-    ? "rgba(34,197,94,0.95)"
-    : "rgba(255,255,255,0.85)";
-
-  return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-      {[0, 0.9, 1.8].map((delay, i) => (
-        <motion.div
-          key={i}
-          aria-hidden
-          className="absolute"
-          style={{
-            width: "78%",
-            height: "62%",
-            maxWidth: "360px",
-            maxHeight: "440px",
-            borderRadius: "44px",
-            border: `1.5px solid rgba(${tint},0.55)`,
-            boxShadow: `0 0 0 1px rgba(${tint},0.18), 0 0 36px rgba(${tint},0.50), inset 0 0 28px rgba(${tint},0.16)`,
-          }}
-          animate={{
-            scale: [1, 1.04, 1],
-            opacity: [0.55, 0.95, 0.55],
-          }}
-          transition={{
-            duration: 2.6,
-            delay,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
-      ))}
-      <div
-        aria-hidden
-        className="absolute"
-        style={{
-          width: "78%",
-          height: "62%",
-          maxWidth: "360px",
-          maxHeight: "440px",
-          borderRadius: "44px",
-          border: `1.5px solid ${innerBorder}`,
-          boxShadow: `inset 0 0 16px rgba(${tint},0.30)`,
-        }}
-      />
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// Head-turn progress ring — SVG circle around the squircle scan zone.
-// Bound to the head-pose `ratio` motion value via `useTransform` so the
-// stroke-dashoffset updates every animation frame WITHOUT triggering a
-// React re-render. Only mounts during the `left` and `right` sub-phases.
-// ════════════════════════════════════════════════════════════════════════
-const RING_R = 168;
-const RING_C = 2 * Math.PI * RING_R;
-
-function HeadTurnProgressRing({
-  ratio,
-  subPhase,
-}: {
-  ratio: ReturnType<typeof useHeadPose>["ratio"];
-  subPhase: SubPhase;
-}) {
-  // Map ratio to [0, 1] progress depending on which pose we're collecting.
-  // `useTransform` reads the current `subPhase` from a closure — when
-  // `subPhase` changes, this hook re-runs and rebuilds the transform with
-  // the fresh closure, so the math stays in sync with the active gate.
-  const dashOffset = useTransform(ratio, (r) => {
-    if (Number.isNaN(r)) return RING_C;
-    let p = 0;
-    if (subPhase === "left") {
-      p = (r - STRAIGHT_HI) / (LEFT_THRESHOLD - STRAIGHT_HI);
-    } else if (subPhase === "right") {
-      p = (STRAIGHT_LO - r) / (STRAIGHT_LO - RIGHT_THRESHOLD);
-    }
-    p = Math.max(0, Math.min(1, p));
-    return RING_C * (1 - p);
-  });
-
-  // Tint the ring per direction so the user has a quick visual confirmation
-  // they're turning the right way.
-  const stroke =
-    subPhase === "left"
-      ? "rgba(165,243,252,0.95)"
-      : "rgba(255,196,236,0.95)";
-  const glowColor =
-    subPhase === "left"
-      ? "rgba(125,211,252,0.65)"
-      : "rgba(244,114,182,0.55)";
-
-  return (
-    <motion.svg
-      aria-hidden
-      className="pointer-events-none absolute left-1/2 top-1/2 z-[11] -translate-x-1/2 -translate-y-1/2"
-      viewBox="0 0 400 400"
-      style={{ width: "92%", height: "92%", maxWidth: "440px" }}
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-    >
-      {/* Track */}
-      <circle
-        cx="200"
-        cy="200"
-        r={RING_R}
-        fill="none"
-        stroke="rgba(255,255,255,0.14)"
-        strokeWidth="3"
-      />
-      {/* Progress */}
-      <motion.circle
-        cx="200"
-        cy="200"
-        r={RING_R}
-        fill="none"
-        stroke={stroke}
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeDasharray={RING_C}
-        strokeDashoffset={dashOffset}
-        transform="rotate(-90 200 200)"
-        style={{
-          filter: `drop-shadow(0 0 8px ${glowColor})`,
-        }}
-      />
-    </motion.svg>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// 3D Orbital Scan Rings
-//
-// Three SVG circle paths arranged at different rotateX angles inside a
-// `transform-style: preserve-3d` stack with a perspective parent. Each ring
-// spins continuously on rotateY at its own rate, giving the illusion that
-// they orbit a sphere centered on the user's face. Sub-phase mapping:
-//   • lighting     — gentle vertical wobble (rotateX), no group tilt.
-//   • left / right — entire group tilts rotateZ ±22° toward the requested
-//                    direction and breathes on scale.
-//   • straight     — calm, no tilt or pulse.
-//   • final        — same as straight.
-//
-// Implementation note: blur is applied via the SVG `<feGaussianBlur>` filter
-// per-ring, NOT via CSS `filter: blur(...)` on the 3D container — WebKit
-// (iOS Safari) flattens `transform-style: preserve-3d` whenever a CSS filter
-// sits anywhere between the perspective and the 3D children, killing the
-// orbital illusion on the exact device class we care about. Opacity is also
-// baked into the gradient stops for the same reason (CSS opacity creates a
-// stacking context that can flatten 3D in some WebKit versions).
-// ════════════════════════════════════════════════════════════════════════
-function OrbitalScanRings({ subPhase }: { subPhase: SubPhase }) {
-  const isLighting = subPhase === "lighting";
-  const isLeft = subPhase === "left";
-  const isRight = subPhase === "right";
-  const isPoseGate = isLeft || isRight;
-
-  const dirTilt = isLeft ? -22 : isRight ? 22 : 0;
-
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 z-[11] flex items-center justify-center"
-      style={{ perspective: "1200px" }}
-    >
-      <motion.div
-        className="relative"
-        style={{
-          width: "82%",
-          height: "82%",
-          maxWidth: "420px",
-          maxHeight: "420px",
-          transformStyle: "preserve-3d",
-        }}
-        animate={{
-          rotateZ: dirTilt,
-          // Subtle vertical wobble during the lighting check — emphasizes
-          // the "scanning vertically" cue from the spec without disturbing
-          // the per-ring rotateX bases.
-          rotateX: isLighting ? [-5, 5, -5] : 0,
-          scale: isPoseGate ? [1, 1.06, 1] : 1,
-        }}
-        transition={{
-          rotateZ: { duration: 0.7, ease: [0.22, 1, 0.36, 1] },
-          rotateX: isLighting
-            ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
-            : { duration: 0.5 },
-          scale: isPoseGate
-            ? { duration: 1.4, repeat: Infinity, ease: "easeInOut" }
-            : { duration: 0.4 },
-        }}
-      >
-        {/* Equatorial — broad orbit viewed from slightly above */}
-        <motion.div
-          className="absolute inset-0"
-          style={{ transformStyle: "preserve-3d" }}
-          initial={{ rotateX: 72, rotateY: 0 }}
-          animate={{ rotateX: 72, rotateY: 360 }}
-          transition={{
-            rotateX: { duration: 0 },
-            rotateY: { duration: 5.5, repeat: Infinity, ease: "linear" },
-          }}
-        >
-          <OrbitalRingSvg gradientId="orbit-grad-1" filterId="orbit-blur-1" />
-        </motion.div>
-
-        {/* Diagonal — counter-spinning at a different angle */}
-        <motion.div
-          className="absolute inset-0"
-          style={{ transformStyle: "preserve-3d" }}
-          initial={{ rotateX: 38, rotateZ: 45, rotateY: 360 }}
-          animate={{ rotateX: 38, rotateZ: 45, rotateY: 0 }}
-          transition={{
-            rotateX: { duration: 0 },
-            rotateZ: { duration: 0 },
-            rotateY: { duration: 6.5, repeat: Infinity, ease: "linear" },
-          }}
-        >
-          <OrbitalRingSvg gradientId="orbit-grad-2" filterId="orbit-blur-2" />
-        </motion.div>
-
-        {/* Near-vertical — the "vertical orbit" the spec calls for during */}
-        {/* the lighting check. Spins faster while in `lighting`. */}
-        <motion.div
-          className="absolute inset-0"
-          style={{ transformStyle: "preserve-3d" }}
-          initial={{ rotateX: 8, rotateY: 0 }}
-          animate={{ rotateX: 8, rotateY: 360 }}
-          transition={{
-            rotateX: { duration: 0 },
-            rotateY: {
-              duration: isLighting ? 3 : 4.5,
-              repeat: Infinity,
-              ease: "linear",
-            },
-          }}
-        >
-          <OrbitalRingSvg gradientId="orbit-grad-3" filterId="orbit-blur-3" />
-        </motion.div>
-      </motion.div>
-    </div>
-  );
-}
-
-function OrbitalRingSvg({
-  gradientId,
-  filterId,
-}: {
-  gradientId: string;
-  filterId: string;
-}) {
-  // Gradient stops bake `opacity: 0.6` into the alpha values directly
-  // (0.6 × originally-intended alpha) so we don't need `opacity` on the 3D
-  // container — see WebKit-flattening note in OrbitalScanRings header.
-  return (
-    <svg
-      viewBox="0 0 200 200"
-      className="absolute inset-0 size-full"
-      aria-hidden
-    >
-      <defs>
-        <linearGradient
-          id={gradientId}
-          x1="0%"
-          y1="50%"
-          x2="100%"
-          y2="50%"
-        >
-          <stop offset="0%" stopColor="rgba(165,243,252,0)" />
-          <stop offset="35%" stopColor="rgba(165,243,252,0.51)" />
-          <stop offset="50%" stopColor="rgba(255,255,255,0.6)" />
-          <stop offset="65%" stopColor="rgba(165,243,252,0.51)" />
-          <stop offset="100%" stopColor="rgba(165,243,252,0)" />
-        </linearGradient>
-        {/* stdDeviation=4 ≈ CSS blur(8px) from the spec. Applied in the */}
-        {/* SVG so it doesn't flatten the parent's preserve-3d context. */}
-        <filter
-          id={filterId}
-          x="-20%"
-          y="-20%"
-          width="140%"
-          height="140%"
-          colorInterpolationFilters="sRGB"
-        >
-          <feGaussianBlur stdDeviation="4" />
-        </filter>
-      </defs>
-      <circle
-        cx="100"
-        cy="100"
-        r="92"
-        fill="none"
-        stroke={`url(#${gradientId})`}
-        strokeWidth="3"
-        strokeLinecap="round"
-        filter={`url(#${filterId})`}
-      />
-    </svg>
   );
 }
 
