@@ -6,6 +6,8 @@ import type { LucideIcon } from "lucide-react";
 import { getScoreBand } from "@/lib/scoring/engine";
 
 import { GlassCard } from "./glass-card";
+import { InsightBubble } from "./insight-bubble";
+import type { Insight } from "./insights";
 import { REPORT_SPRING } from "./types";
 
 /**
@@ -28,6 +30,8 @@ type Props = {
   Icon: LucideIcon;
   index: number;
   subtitle?: string | null;
+  /** Optional comparative insight (§8.3 personalization). `null` = hide. */
+  insight?: Insight | null;
 };
 
 export function MetricCard({
@@ -37,6 +41,7 @@ export function MetricCard({
   Icon,
   index,
   subtitle,
+  insight,
 }: Props) {
   const rounded = Math.round(score);
   const band = getScoreBand(rounded);
@@ -91,6 +96,12 @@ export function MetricCard({
             }}
           />
         </div>
+
+        {insight && (
+          <div className="mt-3">
+            <InsightBubble tone={insight.tone}>{insight.text}</InsightBubble>
+          </div>
+        )}
       </GlassCard>
     </motion.div>
   );

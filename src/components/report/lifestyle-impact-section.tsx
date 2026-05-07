@@ -15,9 +15,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { LifestyleModifier } from "@/lib/scoring/engine";
+import type {
+  CompositeBreakdown,
+  LifestyleModifier,
+} from "@/lib/scoring/engine";
 
 import { GlassCard } from "./glass-card";
+import { InsightBubble } from "./insight-bubble";
+import { buildCauseEffects, type ReportContext } from "./insights";
 import { REPORT_SPRING } from "./types";
 
 /**
@@ -53,11 +58,23 @@ type Props = {
   totalApplied: number;
   /** Uncapped sum (for the §8.4.5 potential projection). */
   totalRaw: number;
+  /** Onboarding context — drives the "Cause & Effect" subsection. */
+  ctx: ReportContext;
+  /** Direction-corrected metric scores — feeds the "habit → metric" lines. */
+  breakdown: CompositeBreakdown;
 };
 
-export function LifestyleImpactSection({ mods, totalApplied, totalRaw }: Props) {
+export function LifestyleImpactSection({
+  mods,
+  totalApplied,
+  totalRaw,
+  ctx,
+  breakdown,
+}: Props) {
+  const causeEffects = buildCauseEffects(ctx, breakdown);
   // No modifiers fired → render a single neutral card so the section
-  // doesn't disappear silently and confuse the user.
+  // doesn't disappear silently and confuse the user. Cause-effect block
+  // still renders below so we don't lose the "habit → metric" narrative.
   if (mods.length === 0) {
     return (
       <section>
@@ -71,6 +88,7 @@ export function LifestyleImpactSection({ mods, totalApplied, totalRaw }: Props) 
             nhịp sống hiện tại nha!
           </p>
         </GlassCard>
+        <CauseEffectsBlock items={causeEffects} />
       </section>
     );
   }
@@ -146,7 +164,43 @@ export function LifestyleImpactSection({ mods, totalApplied, totalRaw }: Props) 
           {totalRaw}).
         </p>
       )}
+
+      <CauseEffectsBlock items={causeEffects} />
     </section>
+  );
+}
+
+/**
+ * SPEC §8.4 cause-and-effect — habit ↔ metric ties (separate from the
+ * §7.B modifier list above, which is "your habit cost you N points").
+ * Reads as: "your habit is producing this number." Renders nothing when
+ * the engine couldn't pair any habit to a metric (e.g. user skipped both
+ * water and diet questions).
+ */
+function CauseEffectsBlock({
+  items,
+}: {
+  items: ReturnType<typeof buildCauseEffects>;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-5">
+      <h3 className="mb-2 px-1 text-[13px] font-semibold tracking-tight text-foreground/85">
+        Thói quen đang tạo nên các chỉ số
+      </h3>
+      <div className="space-y-2">
+        {items.map((it, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...REPORT_SPRING, delay: 0.18 + i * 0.06 }}
+          >
+            <InsightBubble tone={it.tone}>{it.text}</InsightBubble>
+          </motion.div>
+        ))}
+      </div>
+    </div>
   );
 }
 

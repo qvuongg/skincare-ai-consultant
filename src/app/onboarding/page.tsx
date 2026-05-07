@@ -413,11 +413,19 @@ export default function OnboardingPage() {
                   error={analysisError}
                   result={analysisResult}
                   userName={data.user_name}
-                  primaryGoal={data.primary_goals[0] ?? null}
+                  primaryGoal={
+                    data.primary_goals[0]
+                      ? GOAL_LABELS[data.primary_goals[0]] ??
+                        data.primary_goals[0]
+                      : null
+                  }
                   location={data.lifestyle.location}
                   sleepHours={data.lifestyle.sleep_hours}
                   waterLiters={data.lifestyle.water_liters}
                   skinType={getSkinTypeLabel(data.skin_type)}
+                  ageRange={data.age_range}
+                  workEnvironment={data.environment}
+                  diet={data.diet}
                   previewUrl={previewUrl}
                   onRetry={restartScan}
                 />

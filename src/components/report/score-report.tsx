@@ -5,6 +5,7 @@ import { RotateCcw } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { HeroSection } from "./hero-section";
+import type { ReportContext } from "./insights";
 import { LifestyleImpactSection } from "./lifestyle-impact-section";
 import { MetricsGrid } from "./metrics-grid";
 import { RoutineCta } from "./routine-cta";
@@ -17,16 +18,20 @@ import { REPORT_SPRING, type ScanReportPayload } from "./types";
  * report rotates around: hero halo, gauge stroke, metric tints (where
  * they're band-derived), and the routine CTA all consume it. Children
  * never have to know the actual hex.
+ *
+ * `ctx` carries every onboarding field the personalization layer reads —
+ * resolving labels once at the page boundary keeps deep children clean.
  */
 type Props = {
   result: ScanReportPayload;
-  userName: string;
-  /** Pulled from onboarding — `null` when the user skipped that step. */
+  /** Pre-resolved onboarding context for personalized copy. */
+  ctx: ReportContext;
+  /** Self-reported skin type (already a Vietnamese label). */
   skinType: string | null;
   onRetry: () => void;
 };
 
-export function ScoreReport({ result, userName, skinType, onRetry }: Props) {
+export function ScoreReport({ result, ctx, skinType, onRetry }: Props) {
   const rootStyle = {
     ["--score-color" as string]: result.score_band.color,
   } as CSSProperties;
@@ -34,7 +39,7 @@ export function ScoreReport({ result, userName, skinType, onRetry }: Props) {
   return (
     <div className="flex flex-1 flex-col gap-4" style={rootStyle}>
       <HeroSection
-        userName={userName}
+        ctx={ctx}
         overallScore={result.overall_score}
         scoreBand={result.score_band}
         skinType={skinType}
@@ -43,19 +48,19 @@ export function ScoreReport({ result, userName, skinType, onRetry }: Props) {
       <MetricsGrid
         breakdown={result.composite_breakdown}
         acne={result.ai_metrics.acne}
+        ctx={ctx}
       />
 
       <LifestyleImpactSection
         mods={result.lifestyle_modifiers}
         totalApplied={result.modifier_total.applied}
         totalRaw={result.modifier_total.raw}
+        ctx={ctx}
+        breakdown={result.composite_breakdown}
       />
 
       <RoutineCta />
 
-      {/* Disclaimer + secondary "scan again" — scan-again kept because
-          page.tsx still wires `restartScan` in. The disclaimer is a
-          full-glass surface so it doesn't visually break the rhythm. */}
       <motion.p
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}

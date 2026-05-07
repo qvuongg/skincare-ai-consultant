@@ -19,6 +19,23 @@ type DietOption = {
   glow: string;
 };
 
+// Vietnamese display labels for diet tags — exported so the report's
+// "Cause & Effect" lines can read "Chế độ ăn Ăn ngọt nhiều, Ăn cay nhiều"
+// instead of the raw ids. Kept in sync with the `label` field on each
+// DIET_OPTIONS entry below.
+export const DIET_LABELS: Record<DietOptionId, string> = {
+  sweet: "Ăn ngọt nhiều",
+  spicy: "Ăn cay nhiều",
+  fatty: "Ăn đồ béo nhiều",
+  stimulants: "Chất kích thích",
+  healthy: "Đang ăn Healthy",
+};
+
+export function getDietLabels(ids: readonly DietOptionId[] | null | undefined): string[] {
+  if (!ids || ids.length === 0) return [];
+  return ids.map((id) => DIET_LABELS[id] ?? id);
+}
+
 const DIET_OPTIONS: DietOption[] = [
   {
     id: "sweet",

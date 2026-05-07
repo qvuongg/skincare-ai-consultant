@@ -19,6 +19,7 @@ import type {
 } from "@/lib/scoring/engine";
 
 import { MetricCard } from "./metric-card";
+import { getMetricInsight, type ReportContext } from "./insights";
 
 /**
  * SPEC §8.3 — chi tiết 9 chỉ số sinh lý da.
@@ -72,9 +73,10 @@ function acneSubtitle(c: AcneCounts): string | null {
 type Props = {
   breakdown: CompositeBreakdown;
   acne: AcneCounts;
+  ctx: ReportContext;
 };
 
-export function MetricsGrid({ breakdown, acne }: Props) {
+export function MetricsGrid({ breakdown, acne, ctx }: Props) {
   return (
     <section>
       <header className="mb-3 px-1">
@@ -96,6 +98,7 @@ export function MetricsGrid({ breakdown, acne }: Props) {
             Icon={m.icon}
             index={i}
             subtitle={m.key === "acne" ? acneSubtitle(acne) : null}
+            insight={getMetricInsight(m.key, breakdown[m.key], ctx)}
           />
         ))}
       </div>

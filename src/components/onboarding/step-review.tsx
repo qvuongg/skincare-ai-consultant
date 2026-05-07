@@ -4,7 +4,20 @@ import { AnimatePresence, motion } from "framer-motion";
 import { RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ScoreReport } from "@/components/report/score-report";
+import type { ReportContext } from "@/components/report/insights";
 import type { ScanReportPayload } from "@/components/report/types";
+import {
+  getAgeRangeLabel,
+  type AgeRangeId,
+} from "@/components/onboarding/step-age";
+import {
+  getDietLabels,
+  type DietOptionId,
+} from "@/components/onboarding/step-diet";
+import {
+  getEnvironmentLabel,
+  type EnvironmentId,
+} from "@/components/onboarding/step-environment";
 import { Button } from "@/components/ui/button";
 
 // Mirrors the JSON the `/api/analyze-skin` triple-image branch returns.
@@ -17,12 +30,19 @@ type Props = {
   error: string | null;
   result: AnalysisResult | null;
   userName: string;
+  /** Pre-resolved Vietnamese label of the user's first primary goal,
+   *  e.g. "Trị mụn". `null` when the user skipped goal selection. */
   primaryGoal: string | null;
   location: string | null;
   sleepHours: number;
   waterLiters: number;
   /** From onboarding — surfaced in the report's hero badge. */
   skinType?: string | null;
+  /** Raw onboarding ids — the report layer resolves labels via the
+   *  exported helpers from each step component. */
+  ageRange?: AgeRangeId | null;
+  workEnvironment?: EnvironmentId | null;
+  diet?: DietOptionId[];
   previewUrl: string | null;
   onRetry: () => void;
 };
@@ -67,9 +87,38 @@ export function StepReview({
   sleepHours,
   waterLiters,
   skinType = null,
+  ageRange = null,
+  workEnvironment = null,
+  diet = [],
   previewUrl,
   onRetry,
 }: Props) {
+  // Resolve once at this boundary — every child consumes the bag.
+  const reportCtx: ReportContext = useMemo(
+    () => ({
+      userName,
+      goalLabel: primaryGoal,
+      ageId: ageRange,
+      ageLabel: getAgeRangeLabel(ageRange),
+      location,
+      workEnvId: workEnvironment,
+      workEnvLabel: getEnvironmentLabel(workEnvironment),
+      dietIds: diet,
+      dietLabels: getDietLabels(diet),
+      waterLiters,
+      sleepHours,
+    }),
+    [
+      userName,
+      primaryGoal,
+      ageRange,
+      location,
+      workEnvironment,
+      diet,
+      waterLiters,
+      sleepHours,
+    ]
+  );
   const phrases = useMemo(
     () => buildPhrases({ location, sleepHours, waterLiters, primaryGoal }),
     [location, sleepHours, waterLiters, primaryGoal]
@@ -227,7 +276,7 @@ export function StepReview({
   return (
     <ScoreReport
       result={result}
-      userName={userName}
+      ctx={reportCtx}
       skinType={skinType}
       onRetry={onRetry}
     />

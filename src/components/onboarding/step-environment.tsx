@@ -24,6 +24,23 @@ type EnvOption = {
   glow: string;
 };
 
+// Vietnamese display labels for environments — exported so the report
+// layer can render "Văn phòng máy tính" instead of the raw enum id.
+// Kept in sync with the `title` field on each ENV_OPTIONS entry below.
+export const ENVIRONMENT_LABELS: Record<EnvironmentId, string> = {
+  office: "Văn phòng máy tính",
+  factory: "Nhà máy",
+  outdoor: "Ngoài trời",
+  other: "Khác",
+};
+
+export function getEnvironmentLabel(
+  id: EnvironmentId | null | undefined
+): string | null {
+  if (!id) return null;
+  return ENVIRONMENT_LABELS[id] ?? null;
+}
+
 const ENV_OPTIONS: EnvOption[] = [
   {
     id: "office",

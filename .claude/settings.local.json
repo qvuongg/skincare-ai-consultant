@@ -12,7 +12,11 @@
       "Bash(PORT=3456 npm run *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3456/)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3456/onboarding)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(awk 'NR==82' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
+      "Bash(awk 'NR==80,NR==85' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
+      "Bash(awk 'NR==70' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
+      "Bash(node *)"
     ]
   }
 }

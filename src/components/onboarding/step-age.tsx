@@ -21,6 +21,23 @@ type AgeBucket = {
   vibe: string;
 };
 
+// Vietnamese display labels for the six age buckets — exported so the
+// report layer can render the user's age band as "18 – 24" instead of the
+// raw enum id ("18_24").
+export const AGE_RANGE_LABELS: Record<AgeRangeId, string> = {
+  u18: "Dưới 18",
+  "18_24": "18 – 24",
+  "25_34": "25 – 34",
+  "35_44": "35 – 44",
+  "45_54": "45 – 54",
+  "55_plus": "Trên 55",
+};
+
+export function getAgeRangeLabel(id: AgeRangeId | null | undefined): string | null {
+  if (!id) return null;
+  return AGE_RANGE_LABELS[id] ?? null;
+}
+
 const AGE_BUCKETS: AgeBucket[] = [
   {
     id: "u18",
