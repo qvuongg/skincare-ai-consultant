@@ -8,7 +8,7 @@ import { HeroSection } from "./hero-section";
 import type { ReportContext } from "./insights";
 import { LifestyleImpactSection } from "./lifestyle-impact-section";
 import { MetricsGrid } from "./metrics-grid";
-import { RoutineCta } from "./routine-cta";
+import { RoutineSection } from "./routine-section";
 import { REPORT_SPRING, type ScanReportPayload } from "./types";
 
 /**
@@ -59,7 +59,7 @@ export function ScoreReport({ result, ctx, skinType, onRetry }: Props) {
         breakdown={result.composite_breakdown}
       />
 
-      <RoutineCta />
+      <RoutineSection ctx={ctx} breakdown={result.composite_breakdown} />
 
       <motion.p
         initial={{ opacity: 0, y: 8 }}
