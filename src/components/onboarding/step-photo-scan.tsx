@@ -1,11 +1,21 @@
 "use client";
 
 import { FaceLandmarker } from "@mediapipe/tasks-vision";
-import { AnimatePresence, motion } from "framer-motion";
-import { CameraOff, Check, ImagePlus, ScanFace, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useMotionValueEvent,
+} from "framer-motion";
+import { CameraOff, ImagePlus, ScanFace, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useHeadPose } from "@/lib/mediapipe/use-head-pose";
+import {
+  LEFT_THRESHOLD,
+  RIGHT_THRESHOLD,
+  STRAIGHT_HI,
+  STRAIGHT_LO,
+  useHeadPose,
+} from "@/lib/mediapipe/use-head-pose";
 
 type Props = {
   onCapture: (files: File[]) => void;
@@ -13,10 +23,9 @@ type Props = {
 
 type Phase = "requesting" | "denied" | "streaming" | "done";
 
-// Capture state machine: idle (camera not yet streaming) → front → left →
-// right → done. Each pose-gated step waits for the user to hold the target
-// pose (and pass lighting / distance gates) for STEP_HOLD_MS, then silently
-// snapshots a frame and advances.
+// Capture state machine: idle → front → left → right → done. Each pose-gated
+// step waits for the user to hold the target pose (and pass lighting /
+// distance gates) for STEP_HOLD_MS, then silently snapshots a frame.
 type CaptureStep = "idle" | "front" | "left" | "right" | "done";
 
 const STEP_HOLD_MS: Record<"front" | "left" | "right", number> = {
@@ -25,41 +34,36 @@ const STEP_HOLD_MS: Record<"front" | "left" | "right", number> = {
   right: 600,
 };
 
-// `tooClose` must hold for this long before the warning shows — keeps a
-// brief lean-in from popping the bar on/off every frame.
 const TOO_CLOSE_HOLD_MS = 400;
-
 const LOW_LIGHT_THRESHOLD = 70;
 const LOW_LIGHT_SAMPLE_INTERVAL_MS = 700;
+// Capture flash duration — the white screen-flash that plays right before we
+// hand the 3 files off to the parent.
+const FLASH_DURATION_MS = 420;
+// We delay the parent's onCapture by slightly less than the flash so the
+// flash animation gets to play but the parent doesn't sit waiting.
+const FLASH_HANDOFF_MS = 360;
 
-// Wireframe "scan locked" cue — when a capture lands, draw the mesh at
-// boosted opacity for this window so the user feels the AI confirm the angle.
-const FLASH_DURATION_MS = 320;
+// FaceID ring geometry. SEGMENT_COUNT is divisible by 4 so the 12/3/6/9
+// o'clock markers land on segment boundaries exactly.
+const SEGMENT_COUNT = 72;
+const HALF_SEGMENTS = SEGMENT_COUNT / 2;
+const RING_VIEWBOX = 340;
+const RING_INNER_R = 148;
+const RING_OUTER_R = 164;
 
-const STEP_COPY: Record<
-  CaptureStep,
-  { headline: string; status: string; emoji?: string }
-> = {
-  idle: { headline: "Mika đang khởi động camera…", status: "" },
-  front: {
-    headline: "Nhìn thẳng vào ống kính",
-    status: "Đang lấy thông tin chính diện…",
-    emoji: "👀",
-  },
-  left: {
-    headline: "Quay mặt sang trái một chút",
-    status: "Đang lấy thông tin góc trái…",
-    emoji: "↩️",
-  },
-  right: {
-    headline: "Giờ quay mặt sang phải nào",
-    status: "Đang lấy thông tin góc phải…",
-    emoji: "↪️",
-  },
-  done: {
-    headline: "Scan hoàn tất ✨",
-    status: "Đang chuyển sang phân tích…",
-  },
+const COLOR_GRAY = "rgba(255,255,255,0.22)";
+const COLOR_WHITE = "rgba(255,255,255,0.92)";
+const COLOR_GREEN_DIM = "rgba(34,197,94,0.42)";
+const COLOR_GREEN_NEON = "#00FF6A";
+const COLOR_RED = "rgba(239,68,68,0.92)";
+
+const STEP_HEADLINE: Record<CaptureStep, string> = {
+  idle: "Mika đang khởi động camera…",
+  front: "Nhìn thẳng vào ống kính để kiểm tra ánh sáng…",
+  left: "Từ từ quay mặt sang trái…",
+  right: "Giờ từ từ quay mặt sang phải…",
+  done: "Scan hoàn tất ✨",
 };
 
 export function StepPhotoScan({ onCapture }: Props) {
@@ -76,16 +80,34 @@ export function StepPhotoScan({ onCapture }: Props) {
   // Timestamp until which the wireframe should render at flash-opacity.
   const flashUntilRef = useRef(0);
 
+  // Mirror of `step` for the motion-value subscription, which closes over
+  // stale state otherwise.
+  const stepRef = useRef<CaptureStep>("idle");
+  // Monotonic per-step progress refs — once a segment lights up, it stays
+  // lit even if the user wobbles back through center. Keeps the ring from
+  // un-filling and re-filling on noisy frames.
+  const leftProgressMaxRef = useRef(0);
+  const rightProgressMaxRef = useRef(0);
+
   const [phase, setPhase] = useState<Phase>("requesting");
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<CaptureStep>("idle");
   const [lowLight, setLowLight] = useState(false);
   const [tooCloseStable, setTooCloseStable] = useState(false);
+  // Ring fill (0..1) for the active turn step. Quantized to HALF_SEGMENTS
+  // discrete stops so React only re-renders when a new tick should light up.
+  const [leftProgress, setLeftProgress] = useState(0);
+  const [rightProgress, setRightProgress] = useState(0);
+  const [flashing, setFlashing] = useState(false);
 
-  const { snapshot, landmarksRef } = useHeadPose(
+  const { snapshot, landmarksRef, ratio } = useHeadPose(
     videoRef,
     phase === "streaming"
   );
+
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -123,6 +145,10 @@ export function StepPhotoScan({ onCapture }: Props) {
         await videoRef.current.play().catch(() => {});
       }
       filesRef.current = [];
+      leftProgressMaxRef.current = 0;
+      rightProgressMaxRef.current = 0;
+      setLeftProgress(0);
+      setRightProgress(0);
       setPhase("streaming");
       setStep("front");
     } catch {
@@ -179,8 +205,7 @@ export function StepPhotoScan({ onCapture }: Props) {
 
     let ok = false;
     if (step === "front") {
-      ok =
-        snapshot.pose === "straight" && !lowLight && !tooCloseStable;
+      ok = snapshot.pose === "straight" && !lowLight && !tooCloseStable;
     } else if (step === "left") {
       ok = snapshot.pose === "left";
     } else if (step === "right") {
@@ -193,14 +218,30 @@ export function StepPhotoScan({ onCapture }: Props) {
         const file = await grabFrame(step);
         if (!file) return;
         filesRef.current = [...filesRef.current, file];
-        flashUntilRef.current = performance.now() + FLASH_DURATION_MS;
-        if (step === "front") setStep("left");
-        else if (step === "left") setStep("right");
-        else if (step === "right") {
+        flashUntilRef.current = performance.now() + 320;
+        if (step === "front") {
+          setStep("left");
+        } else if (step === "left") {
+          // Snap the left ring to fully lit when capture lands — guards
+          // against a near-1 progress value where the last tick never
+          // crossed the quantization boundary.
+          leftProgressMaxRef.current = 1;
+          setLeftProgress(1);
+          setStep("right");
+        } else if (step === "right") {
+          rightProgressMaxRef.current = 1;
+          setRightProgress(1);
           setStep("done");
           setPhase("done");
           stopStream();
-          onCapture(filesRef.current);
+          // Screen-flash, then hand off. Delay onCapture slightly so the
+          // user actually sees the flash before the parent unmounts us.
+          setFlashing(true);
+          setTimeout(() => setFlashing(false), FLASH_DURATION_MS);
+          setTimeout(
+            () => onCapture(filesRef.current),
+            FLASH_HANDOFF_MS
+          );
         }
       })();
     }, STEP_HOLD_MS[step]);
@@ -217,19 +258,45 @@ export function StepPhotoScan({ onCapture }: Props) {
   ]);
 
   // ─── tooClose debounce — only flag after sustained 400ms ─────────────
-  // Both branches go through setTimeout (the false branch with 0ms) so the
-  // setState always runs async — keeps React Compiler / `set-state-in-effect`
-  // happy. Same pattern as the legacy `useFallback` defer.
   useEffect(() => {
     const delay = snapshot.tooClose ? TOO_CLOSE_HOLD_MS : 0;
     const t = setTimeout(() => setTooCloseStable(snapshot.tooClose), delay);
     return () => clearTimeout(t);
   }, [snapshot.tooClose]);
 
+  // ─── Ring fill ↔ head-pose ratio ─────────────────────────────────────
+  // Subscribe to the ratio MotionValue (no React re-renders per frame) and
+  // only setState when the quantized progress crosses a new segment.
+  useMotionValueEvent(ratio, "change", (r) => {
+    if (Number.isNaN(r)) return;
+    const cur = stepRef.current;
+    if (cur === "left") {
+      const raw = (r - STRAIGHT_HI) / (LEFT_THRESHOLD - STRAIGHT_HI);
+      const clamped = Math.max(0, Math.min(1, raw));
+      if (clamped > leftProgressMaxRef.current) {
+        const quant = Math.round(clamped * HALF_SEGMENTS) / HALF_SEGMENTS;
+        if (quant > leftProgressMaxRef.current) {
+          leftProgressMaxRef.current = quant;
+          setLeftProgress(quant);
+        }
+      }
+    } else if (cur === "right") {
+      const raw =
+        (STRAIGHT_LO - r) / (STRAIGHT_LO - RIGHT_THRESHOLD);
+      const clamped = Math.max(0, Math.min(1, raw));
+      if (clamped > rightProgressMaxRef.current) {
+        const quant = Math.round(clamped * HALF_SEGMENTS) / HALF_SEGMENTS;
+        if (quant > rightProgressMaxRef.current) {
+          rightProgressMaxRef.current = quant;
+          setRightProgress(quant);
+        }
+      }
+    }
+  });
+
   // ─── Wireframe canvas RAF ────────────────────────────────────────────
-  // One Path2D per frame, single stroke — much cheaper than DrawingUtils
-  // (which strokes per connector) on the ~2.5k connectors in the tesselation.
-  // Keeps the 60fps target on mid-tier phones.
+  // Kept (subtler than before) for that "AI is looking at you" feel; clipped
+  // to the circular camera frame by its parent's `overflow-hidden`.
   useEffect(() => {
     if (phase !== "streaming") return;
     const canvas = wireframeCanvasRef.current;
@@ -261,9 +328,9 @@ export function StepPhotoScan({ onCapture }: Props) {
           }
           const flash = performance.now() < flashUntilRef.current;
           ctx.strokeStyle = flash
-            ? "rgba(255, 90, 90, 0.92)"
-            : "rgba(255, 0, 0, 0.40)";
-          ctx.lineWidth = flash ? 3 : 1.4;
+            ? "rgba(0,255,140,0.90)"
+            : "rgba(255,255,255,0.26)";
+          ctx.lineWidth = flash ? 2.4 : 1.1;
           ctx.stroke(path);
         }
       }
@@ -318,18 +385,19 @@ export function StepPhotoScan({ onCapture }: Props) {
   const denied = phase === "denied";
   const requesting = phase === "requesting";
   const finished = phase === "done";
-  const copy = STEP_COPY[step];
 
-  // Top warning slot: only one warning at a time (image_9.png shows a single
-  // bar). Distance is the higher-priority physical correction so it wins
-  // over low-light, which is just a soft hint.
-  const topWarning: "tooClose" | "lowLight" | null = tooCloseStable
+  // Top warning slot: only one warning at a time. tooClose is physical-safety
+  // critical → wins. tooFast is a soft correction. lowLight is the lightest
+  // hint and yields to both.
+  const topWarning: "tooClose" | "tooFast" | "lowLight" | null = tooCloseStable
     ? "tooClose"
-    : lowLight && !finished
-      ? "lowLight"
-      : null;
+    : snapshot.tooFast
+      ? "tooFast"
+      : lowLight && !finished
+        ? "lowLight"
+        : null;
 
-  const TITLE_TOP = "calc(env(safe-area-inset-top) + 76px)";
+  const headline = requesting ? STEP_HEADLINE.idle : STEP_HEADLINE[step];
 
   return (
     <motion.div
@@ -343,33 +411,22 @@ export function StepPhotoScan({ onCapture }: Props) {
         height: "calc(100% + env(safe-area-inset-top))",
       }}
     >
-      {/* ── Layer 0 · Live video ───────────────────────────────────────── */}
-      <video
-        ref={videoRef}
-        playsInline
-        muted
-        autoPlay
-        className="absolute inset-0 size-full object-cover"
-        style={{ transform: "scaleX(-1)" }}
-      />
-
-      {/* ── Layer 1 · Red 3D wireframe ─────────────────────────────────── */}
-      {/* Canvas mirrors the video the same way (scaleX(-1)) so MediaPipe's */}
-      {/* raw normalized landmarks land on the displayed (mirrored) face   */}
-      {/* without flipping coordinates manually. Both share object-cover so */}
-      {/* the same crop applies to landmarks and pixels.                   */}
-      <canvas
-        ref={wireframeCanvasRef}
+      {/* ── Soft top-edge vignette so the headline reads against any skin */}
+      {/* tone reflected by the rim glow.                                 */}
+      <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 z-10 size-full object-cover"
-        style={{ transform: "scaleX(-1)" }}
+        className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-[44%]"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.0) 100%)",
+        }}
       />
 
-      {/* ── Layer 2 · Top "too close" warning bar ──────────────────────── */}
+      {/* ── Layer 1 · Top warning bar ─────────────────────────────────── */}
       <AnimatePresence>
         {topWarning === "tooClose" && (
           <motion.div
-            key="tooclose"
+            key="warn-close"
             initial={{ opacity: 0, y: -8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
@@ -379,9 +436,9 @@ export function StepPhotoScan({ onCapture }: Props) {
               damping: 24,
               mass: 0.85,
             }}
-            className="absolute left-1/2 z-[24] -translate-x-1/2 rounded-full px-4 py-2 text-center text-[12px] font-semibold tracking-tight text-white"
+            className="absolute left-1/2 z-[40] -translate-x-1/2 rounded-2xl px-4 py-2 text-center text-[12px] font-semibold tracking-tight text-white"
             style={{
-              top: "calc(env(safe-area-inset-top) + 24px)",
+              top: "calc(env(safe-area-inset-top) + 70px)",
               background: "rgba(220,38,38,0.92)",
               boxShadow:
                 "0 0 24px rgba(220,38,38,0.85), 0 0 56px rgba(220,38,38,0.55), inset 0 1px 0 rgba(255,255,255,0.25)",
@@ -390,83 +447,227 @@ export function StepPhotoScan({ onCapture }: Props) {
             You are too close to your smartphone
           </motion.div>
         )}
+        {topWarning === "tooFast" && (
+          <motion.div
+            key="warn-fast"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.25 }}
+            className="absolute left-1/2 z-[35] -translate-x-1/2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-white"
+            style={{
+              top: "calc(env(safe-area-inset-top) + 70px)",
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              border: "1px solid rgba(255,255,255,0.20)",
+            }}
+          >
+            Chậm lại một chút bạn ơi…
+          </motion.div>
+        )}
         {topWarning === "lowLight" && (
           <motion.div
-            key="lowlight"
+            key="warn-light"
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.3 }}
-            className="absolute left-1/2 z-20 -translate-x-1/2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-amber-50"
+            className="absolute left-1/2 z-[35] -translate-x-1/2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-amber-50"
             style={{
-              top: "calc(env(safe-area-inset-top) + 24px)",
+              top: "calc(env(safe-area-inset-top) + 70px)",
               background: "rgba(245,158,11,0.32)",
               backdropFilter: "blur(20px) saturate(180%)",
               WebkitBackdropFilter: "blur(20px) saturate(180%)",
               border: "1px solid rgba(255,255,255,0.20)",
             }}
           >
-            💡 Hơi tối — bật màn hình bù sáng cho bạn
+            💡 Hơi tối — Mika cần thêm ánh sáng nha
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Layer 3 · Header glass title ───────────────────────────────── */}
+      {/* ── Layer 2 · Instruction headline (large white, above the ring) */}
       {!denied && (
         <div
-          className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-5 sm:px-6"
-          style={{ top: TITLE_TOP }}
+          className="pointer-events-none absolute inset-x-0 z-[30] px-6 text-center"
+          style={{ top: "calc(env(safe-area-inset-top) + 116px)" }}
         >
-          <motion.div
-            initial={{ y: -8, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{
-              delay: 0.08,
-              type: "spring",
-              stiffness: 320,
-              damping: 26,
-            }}
-            className="pointer-events-auto w-full max-w-[360px] rounded-[28px] px-4 py-3 text-center"
-            style={{
-              background: "rgba(255,255,255,0.10)",
-              backdropFilter: "blur(28px) saturate(180%)",
-              WebkitBackdropFilter: "blur(28px) saturate(180%)",
-              border: "1px solid rgba(255,255,255,0.22)",
-              boxShadow:
-                "0 14px 40px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
-            }}
-          >
-            <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
-              Bước 09 · Photo Scan
-            </span>
-            <h1 className="mt-1 text-balance text-[17px] font-semibold leading-tight tracking-tight text-white">
-              {requesting
-                ? "Đang khởi động camera…"
-                : finished
-                  ? "Scan hoàn tất ✨"
-                  : "Mika đang đọc làn da bạn…"}
-            </h1>
-          </motion.div>
+          <AnimatePresence mode="wait">
+            <motion.h1
+              key={`headline-${step}-${requesting}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+              className="mx-auto max-w-[320px] text-balance text-[19px] font-semibold leading-snug tracking-tight text-white"
+              style={{
+                textShadow: "0 1px 14px rgba(0,0,0,0.55)",
+              }}
+            >
+              {headline}
+            </motion.h1>
+          </AnimatePresence>
         </div>
       )}
 
-      {/* ── Layer 4 · Bottom instruction + silent status ───────────────── */}
+      {/* ── Layer 3 · FaceID ring + circular camera, centered ─────────── */}
+      {!denied && (
+        <div className="pointer-events-none absolute inset-0 z-[20] flex items-center justify-center">
+          <div
+            className="relative"
+            style={{ width: RING_VIEWBOX, height: RING_VIEWBOX }}
+          >
+            {/* Outer rotating glow — simulates the 3D laser sweep over the */}
+            {/* ring. Two counter-rotating sweeps stack to give a richer    */}
+            {/* halo. Hidden during done so the green hold reads as final.  */}
+            {!finished && (
+              <>
+                <motion.div
+                  aria-hidden
+                  className="absolute inset-0 rounded-full"
+                  animate={{ rotate: 360 }}
+                  transition={{
+                    duration: 4.6,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }}
+                  style={{
+                    background:
+                      "conic-gradient(from 0deg, transparent 0% 84%, rgba(255,255,255,0.20) 88%, rgba(255,255,255,0.70) 92%, rgba(255,255,255,0.20) 96%, transparent 100%)",
+                    WebkitMaskImage:
+                      "radial-gradient(circle at center, transparent 38%, black 44%, black 52%, transparent 58%)",
+                    maskImage:
+                      "radial-gradient(circle at center, transparent 38%, black 44%, black 52%, transparent 58%)",
+                  }}
+                />
+                <motion.div
+                  aria-hidden
+                  className="absolute inset-0 rounded-full opacity-60"
+                  animate={{ rotate: -360 }}
+                  transition={{
+                    duration: 8,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }}
+                  style={{
+                    background:
+                      "conic-gradient(from 180deg, transparent 0% 90%, rgba(0,255,160,0.40) 95%, transparent 100%)",
+                    WebkitMaskImage:
+                      "radial-gradient(circle at center, transparent 40%, black 45%, black 51%, transparent 56%)",
+                    maskImage:
+                      "radial-gradient(circle at center, transparent 40%, black 45%, black 51%, transparent 56%)",
+                  }}
+                />
+              </>
+            )}
+
+            {/* Hold-glow ring under the dashes — gives the camera an */}
+            {/* iOS-style ambient halo that warms with progress.      */}
+            <div
+              aria-hidden
+              className="absolute inset-[18px] rounded-full"
+              style={{
+                boxShadow:
+                  step === "done"
+                    ? "0 0 60px 4px rgba(0,255,106,0.55), inset 0 0 20px rgba(0,255,106,0.35)"
+                    : tooCloseStable
+                      ? "0 0 50px 2px rgba(239,68,68,0.55)"
+                      : step === "left" || step === "right"
+                        ? "0 0 38px rgba(0,255,140,0.25)"
+                        : "0 0 28px rgba(255,255,255,0.10)",
+                transition: "box-shadow 320ms ease-out",
+              }}
+            />
+
+            {/* SVG dashed FaceID ring */}
+            <FaceIDRing
+              step={step}
+              leftProgress={leftProgress}
+              rightProgress={rightProgress}
+              tooClose={tooCloseStable}
+            />
+
+            {/* Camera circle — clips both video and the wireframe canvas */}
+            <div
+              className="absolute overflow-hidden rounded-full bg-black"
+              style={{
+                inset: 24,
+                boxShadow:
+                  "inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 18px 40px rgba(0,0,0,0.55)",
+              }}
+            >
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                autoPlay
+                className="absolute inset-0 size-full object-cover"
+                style={{ transform: "scaleX(-1)" }}
+              />
+              <canvas
+                ref={wireframeCanvasRef}
+                aria-hidden
+                className="pointer-events-none absolute inset-0 size-full object-cover"
+                style={{ transform: "scaleX(-1)" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Layer 4 · Bottom: upload fallback + status pill ───────────── */}
       {!denied && (
         <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-5 sm:px-6"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[30] flex flex-col items-center gap-3 px-6"
           style={{
             paddingBottom: "max(2rem, env(safe-area-inset-bottom))",
           }}
         >
-          {phase === "streaming" && copy.status && (
-            <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait">
+            {requesting ? (
+              <motion.div
+                key="req"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-semibold text-white"
+                style={{
+                  background: "rgba(255,255,255,0.10)",
+                  backdropFilter: "blur(28px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                }}
+              >
+                <ScanFace className="size-4" />
+                Cho phép quyền camera để Mika scan da bạn nha
+              </motion.div>
+            ) : finished ? (
+              <motion.div
+                key="done"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.28 }}
+                className="rounded-full px-4 py-2 text-[12px] font-semibold text-emerald-50"
+                style={{
+                  background: "rgba(0,200,90,0.22)",
+                  backdropFilter: "blur(28px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                  border: "1px solid rgba(0,255,140,0.30)",
+                }}
+              >
+                Đã chụp đủ 3 góc · Mika đang phân tích…
+              </motion.div>
+            ) : (
               <motion.span
                 key={`status-${step}`}
                 initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 0.9, y: 0 }}
+                animate={{ opacity: 0.85, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.28 }}
-                className="rounded-full px-2.5 py-1 font-mono text-[10px] tracking-wide text-cyan-200"
+                className="rounded-full px-3 py-1 font-mono text-[10px] tracking-[0.14em] text-white/80"
                 style={{
                   background: "rgba(0,0,0,0.45)",
                   backdropFilter: "blur(16px)",
@@ -474,89 +675,20 @@ export function StepPhotoScan({ onCapture }: Props) {
                   border: "1px solid rgba(255,255,255,0.10)",
                 }}
               >
-                {copy.status}
+                {step === "front"
+                  ? "STEP 1 · LIGHTING CHECK"
+                  : step === "left"
+                    ? "STEP 2 · LEFT PROFILE"
+                    : "STEP 3 · RIGHT PROFILE"}
               </motion.span>
-            </AnimatePresence>
-          )}
+            )}
+          </AnimatePresence>
 
-          <div className="pointer-events-auto w-full max-w-[360px]">
-            <AnimatePresence mode="wait">
-              {finished ? (
-                <motion.div
-                  key="done"
-                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 320,
-                    damping: 22,
-                  }}
-                  className="flex flex-col items-center gap-1.5 rounded-[22px] px-4 py-3 text-center"
-                  style={{
-                    background: "rgba(34,197,94,0.18)",
-                    backdropFilter: "blur(28px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(28px) saturate(180%)",
-                    border: "1px solid rgba(255,255,255,0.22)",
-                    boxShadow:
-                      "0 14px 36px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
-                  }}
-                >
-                  <span className="flex items-center gap-2 text-[13px] font-semibold text-emerald-50">
-                    <Check className="size-4" strokeWidth={3} />
-                    Đã chụp đủ 3 góc, giữ nguyên 1s nha!
-                  </span>
-                  <p className="text-[11px] text-white/65">
-                    Mika đang chuyển sang phân tích…
-                  </p>
-                </motion.div>
-              ) : requesting ? (
-                <motion.div
-                  key="requesting"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="flex items-center justify-center gap-2 rounded-[22px] px-4 py-3 text-[13px] font-semibold tracking-tight text-white"
-                  style={{
-                    background: "rgba(255,255,255,0.10)",
-                    backdropFilter: "blur(28px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(28px) saturate(180%)",
-                    border: "1px solid rgba(255,255,255,0.22)",
-                  }}
-                >
-                  <ScanFace className="size-4" />
-                  Cho phép quyền camera để Mika scan da bạn nha
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={`instr-${step}`}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex items-center justify-center gap-2 rounded-[22px] px-4 py-3 text-[14px] font-semibold tracking-tight text-white"
-                  style={{
-                    background: "rgba(255,255,255,0.10)",
-                    backdropFilter: "blur(28px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(28px) saturate(180%)",
-                    border: "1px solid rgba(255,255,255,0.22)",
-                    boxShadow:
-                      "0 14px 36px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.30)",
-                  }}
-                >
-                  {copy.emoji && <span aria-hidden>{copy.emoji}</span>}
-                  {copy.headline}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {!finished && (
+          {!finished && !requesting && (
             <button
               type="button"
               onClick={() => galleryInputRef.current?.click()}
-              className="pointer-events-auto flex items-center gap-2 rounded-full px-5 py-3 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+              className="pointer-events-auto flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
               style={{
                 background: "rgba(255,255,255,0.10)",
                 backdropFilter: "blur(28px) saturate(180%)",
@@ -573,7 +705,21 @@ export function StepPhotoScan({ onCapture }: Props) {
         </div>
       )}
 
-      {/* ── Layer 5 · Permission denied overlay ────────────────────────── */}
+      {/* ── Layer 5 · Screen flash (capture moment) ───────────────────── */}
+      <AnimatePresence>
+        {flashing && (
+          <motion.div
+            key="flash"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 0.95, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: FLASH_DURATION_MS / 1000, times: [0, 0.25, 1] }}
+            className="pointer-events-none absolute inset-0 z-[60] bg-white"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Layer 6 · Permission denied overlay ───────────────────────── */}
       <AnimatePresence>
         {denied && (
           <PermissionFallback
@@ -596,6 +742,121 @@ export function StepPhotoScan({ onCapture }: Props) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// FaceID dashed ring — 72 radial ticks around the camera circle.
+//
+// Color states:
+//   - idle / requesting: gray
+//   - front:             white, group opacity pulses (lighting check)
+//   - left:              base dim-green; ticks light neon-green from the
+//                        top (12 o'clock) going CCW down to 6 o'clock as
+//                        leftProgress 0→1
+//   - right:             left arc stays neon-green (carryover from prev
+//                        step); right arc lights neon-green from the top
+//                        going CW down to 6 o'clock as rightProgress 0→1
+//   - done:              all neon-green
+//   - tooClose:          all red (overrides any active step)
+// ════════════════════════════════════════════════════════════════════════
+function FaceIDRing({
+  step,
+  leftProgress,
+  rightProgress,
+  tooClose,
+}: {
+  step: CaptureStep;
+  leftProgress: number;
+  rightProgress: number;
+  tooClose: boolean;
+}) {
+  const cx = RING_VIEWBOX / 2;
+  const cy = RING_VIEWBOX / 2;
+
+  // Pre-computed segment endpoints (stable across renders).
+  const segments = useMemo(() => {
+    return Array.from({ length: SEGMENT_COUNT }, (_, i) => {
+      // i=0 sits at 12 o'clock; increasing i rotates clockwise.
+      const angleDeg = (i * 360) / SEGMENT_COUNT - 90;
+      const angleRad = (angleDeg * Math.PI) / 180;
+      const cos = Math.cos(angleRad);
+      const sin = Math.sin(angleRad);
+      return {
+        x1: cx + RING_INNER_R * cos,
+        y1: cy + RING_INNER_R * sin,
+        x2: cx + RING_OUTER_R * cos,
+        y2: cy + RING_OUTER_R * sin,
+      };
+    });
+  }, [cx, cy]);
+
+  // Group-level pulse during the "front" lighting-check step. We pulse the
+  // group opacity instead of each segment's stroke so the animation runs
+  // entirely on the compositor.
+  const pulseAnim =
+    step === "front"
+      ? { opacity: [0.32, 1, 0.32] as number[] }
+      : { opacity: 1 };
+  const pulseTransition =
+    step === "front"
+      ? {
+          duration: 1.4,
+          repeat: Infinity,
+          ease: "easeInOut" as const,
+        }
+      : { duration: 0.35 };
+
+  // Override priority: tooClose > step state.
+  const redOverride = tooClose && step !== "idle" && step !== "done";
+
+  return (
+    <svg
+      viewBox={`0 0 ${RING_VIEWBOX} ${RING_VIEWBOX}`}
+      className="absolute inset-0 size-full"
+      aria-hidden
+    >
+      <motion.g animate={pulseAnim} transition={pulseTransition}>
+        {segments.map((seg, i) => {
+          let stroke = COLOR_GRAY;
+
+          if (redOverride) {
+            stroke = COLOR_RED;
+          } else if (step === "idle") {
+            stroke = COLOR_GRAY;
+          } else if (step === "front") {
+            stroke = COLOR_WHITE;
+          } else if (step === "done") {
+            stroke = COLOR_GREEN_NEON;
+          } else if (step === "left") {
+            // Distance from top going CCW (i=0 → 0, i=71 → 1, … i=36 → 36).
+            const distCCW = (SEGMENT_COUNT - i) % SEGMENT_COUNT;
+            const lit = distCCW <= leftProgress * HALF_SEGMENTS;
+            stroke = lit ? COLOR_GREEN_NEON : COLOR_GREEN_DIM;
+          } else if (step === "right") {
+            // Left arc (i ≥ 36 or i === 0) is already lit from the prior
+            // step. Right arc (i in [0, 36]) lights from top going CW.
+            const onLeftArc = i === 0 || i >= HALF_SEGMENTS;
+            const onRightArcLit = i <= rightProgress * HALF_SEGMENTS;
+            const lit = onLeftArc || onRightArcLit;
+            stroke = lit ? COLOR_GREEN_NEON : COLOR_GREEN_DIM;
+          }
+
+          return (
+            <line
+              key={i}
+              x1={seg.x1}
+              y1={seg.y1}
+              x2={seg.x2}
+              y2={seg.y2}
+              stroke={stroke}
+              strokeWidth={3.4}
+              strokeLinecap="round"
+            />
+          );
+        })}
+      </motion.g>
+    </svg>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // Permission denied / fallback dialog
 // ════════════════════════════════════════════════════════════════════════
 function PermissionFallback({
@@ -613,7 +874,7 @@ function PermissionFallback({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.25 }}
-      className="absolute inset-0 z-30 flex items-center justify-center px-5"
+      className="absolute inset-0 z-[70] flex items-center justify-center px-5"
       style={{
         background: "rgba(0,0,0,0.66)",
         backdropFilter: "blur(16px) saturate(160%)",
