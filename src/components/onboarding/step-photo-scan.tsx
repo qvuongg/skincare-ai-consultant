@@ -99,6 +99,10 @@ export function StepPhotoScan({ onCapture }: Props) {
   const [leftProgress, setLeftProgress] = useState(0);
   const [rightProgress, setRightProgress] = useState(0);
   const [flashing, setFlashing] = useState(false);
+  // Latched "user is in the correct pose" — drives the green chase trail.
+  // Latched (not raw) to absorb single-frame MediaPipe jitter at the
+  // straight↔left↔right boundaries; otherwise the trail would flicker.
+  const [poseLocked, setPoseLocked] = useState(false);
 
   const { snapshot, landmarksRef, ratio } = useHeadPose(
     videoRef,
@@ -263,6 +267,34 @@ export function StepPhotoScan({ onCapture }: Props) {
     const t = setTimeout(() => setTooCloseStable(snapshot.tooClose), delay);
     return () => clearTimeout(t);
   }, [snapshot.tooClose]);
+
+  // ─── poseLocked latch — drives the green chase trail ────────────────
+  // True the moment the user lands the target pose; falls back to false
+  // only after a 380ms grace window so MediaPipe noise doesn't strobe the
+  // green ribbon on/off. For left/right we also OR in the monotonic
+  // progress so the trail stays lit once any segment has been earned.
+  const poseOk =
+    phase === "streaming" &&
+    step !== "idle" &&
+    step !== "done" &&
+    ((step === "front" &&
+      snapshot.pose === "straight" &&
+      !lowLight &&
+      !tooCloseStable) ||
+      (step === "left" &&
+        (snapshot.pose === "left" || leftProgress > 0)) ||
+      (step === "right" &&
+        (snapshot.pose === "right" || rightProgress > 0)));
+
+  useEffect(() => {
+    // setTimeout (even with 0ms) lets us write through the same deferred-
+    // setState path in both directions and dodges the lint rule against
+    // synchronous setState in effects. Going false carries a grace window;
+    // going true fires on the next macrotask (≪ 1 frame).
+    const delay = poseOk ? 0 : 380;
+    const t = setTimeout(() => setPoseLocked(poseOk), delay);
+    return () => clearTimeout(t);
+  }, [poseOk]);
 
   // ─── Ring fill ↔ head-pose ratio ─────────────────────────────────────
   // Subscribe to the ratio MotionValue (no React re-renders per frame) and
@@ -487,79 +519,67 @@ export function StepPhotoScan({ onCapture }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── Layer 2 · Instruction headline (large white, above the ring) */}
-      {!denied && (
-        <div
-          className="pointer-events-none absolute inset-x-0 z-[30] px-6 text-center"
-          style={{ top: "calc(env(safe-area-inset-top) + 116px)" }}
-        >
-          <AnimatePresence mode="wait">
-            <motion.h1
-              key={`headline-${step}-${requesting}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-              className="mx-auto max-w-[320px] text-balance text-[19px] font-semibold leading-snug tracking-tight text-white"
-              style={{
-                textShadow: "0 1px 14px rgba(0,0,0,0.55)",
-              }}
-            >
-              {headline}
-            </motion.h1>
-          </AnimatePresence>
-        </div>
-      )}
-
-      {/* ── Layer 3 · FaceID ring + circular camera, centered ─────────── */}
+      {/* ── Layer 3 · FaceID ring + circular camera ──────────────────── */}
+      {/* Shifted ~15vh above viewport center so the lower half of the   */}
+      {/* screen is free for the instruction text + buttons (which the   */}
+      {/* user reads with their head still raised toward the camera).    */}
       {!denied && (
         <div className="pointer-events-none absolute inset-0 z-[20] flex items-center justify-center">
           <div
             className="relative"
-            style={{ width: RING_VIEWBOX, height: RING_VIEWBOX }}
+            style={{
+              width: RING_VIEWBOX,
+              height: RING_VIEWBOX,
+              transform: "translateY(-15vh)",
+            }}
           >
-            {/* Outer rotating glow — simulates the 3D laser sweep over the */}
-            {/* ring. Two counter-rotating sweeps stack to give a richer    */}
-            {/* halo. Hidden during done so the green hold reads as final.  */}
+            {/* Outer rotating sweep — a slow CW "AI scan laser" with a short */}
+            {/* white leading tick. When the user holds the correct pose, a   */}
+            {/* long green ribbon (#00FF00) fades in BEHIND the white tick    */}
+            {/* and rides the same rotation, creating a "chase" filling-the-  */}
+            {/* circle visual. Hidden during done so the green hold reads as  */}
+            {/* the final state.                                              */}
             {!finished && (
-              <>
-                <motion.div
-                  aria-hidden
+              <motion.div
+                aria-hidden
+                className="absolute inset-0"
+                animate={{ rotate: 360 }}
+                transition={{
+                  duration: 7.2,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+              >
+                {/* White leading tick — short, bright, always rotating. */}
+                <div
                   className="absolute inset-0 rounded-full"
-                  animate={{ rotate: 360 }}
-                  transition={{
-                    duration: 4.6,
-                    repeat: Infinity,
-                    ease: "linear",
-                  }}
                   style={{
                     background:
-                      "conic-gradient(from 0deg, transparent 0% 84%, rgba(255,255,255,0.20) 88%, rgba(255,255,255,0.70) 92%, rgba(255,255,255,0.20) 96%, transparent 100%)",
+                      "conic-gradient(from 0deg, transparent 0% 92%, rgba(255,255,255,0.20) 94%, rgba(255,255,255,0.95) 97%, rgba(255,255,255,0.25) 99%, transparent 100%)",
                     WebkitMaskImage:
                       "radial-gradient(circle at center, transparent 38%, black 44%, black 52%, transparent 58%)",
                     maskImage:
                       "radial-gradient(circle at center, transparent 38%, black 44%, black 52%, transparent 58%)",
                   }}
                 />
+                {/* Green chasing ribbon — long, fades in when pose is */}
+                {/* locked. Sits inside the same rotating wrapper so it */}
+                {/* stays glued behind the white tick. */}
                 <motion.div
-                  aria-hidden
-                  className="absolute inset-0 rounded-full opacity-60"
-                  animate={{ rotate: -360 }}
-                  transition={{
-                    duration: 8,
-                    repeat: Infinity,
-                    ease: "linear",
-                  }}
+                  className="absolute inset-0 rounded-full"
+                  animate={{ opacity: poseLocked ? 1 : 0 }}
+                  transition={{ duration: 0.45, ease: "easeOut" }}
                   style={{
                     background:
-                      "conic-gradient(from 180deg, transparent 0% 90%, rgba(0,255,160,0.40) 95%, transparent 100%)",
+                      "conic-gradient(from 0deg, transparent 0% 55%, rgba(0,255,0,0.0) 57%, rgba(0,255,0,0.55) 74%, rgba(0,255,0,0.95) 88%, rgba(0,255,0,0.40) 92%, transparent 93% 100%)",
                     WebkitMaskImage:
-                      "radial-gradient(circle at center, transparent 40%, black 45%, black 51%, transparent 56%)",
+                      "radial-gradient(circle at center, transparent 38%, black 44%, black 52%, transparent 58%)",
                     maskImage:
-                      "radial-gradient(circle at center, transparent 40%, black 45%, black 51%, transparent 56%)",
+                      "radial-gradient(circle at center, transparent 38%, black 44%, black 52%, transparent 58%)",
+                    filter: "drop-shadow(0 0 10px rgba(0,255,0,0.55))",
                   }}
                 />
-              </>
+              </motion.div>
             )}
 
             {/* Hold-glow ring under the dashes — gives the camera an */}
@@ -616,14 +636,33 @@ export function StepPhotoScan({ onCapture }: Props) {
         </div>
       )}
 
-      {/* ── Layer 4 · Bottom: upload fallback + status pill ───────────── */}
+      {/* ── Layer 4 · Bottom: instruction text + status pill + upload ── */}
+      {/* Instruction text + accompanying controls live in the lower half */}
+      {/* so they don't compete with the (upward-shifted) camera ring and */}
+      {/* stay in the user's natural reading line of sight.               */}
       {!denied && (
         <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-[30] flex flex-col items-center gap-3 px-6"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[30] flex flex-col items-center gap-4 px-6"
           style={{
             paddingBottom: "max(2rem, env(safe-area-inset-bottom))",
           }}
         >
+          <AnimatePresence mode="wait">
+            <motion.h1
+              key={`headline-${step}-${requesting}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+              className="mx-auto max-w-[320px] text-balance text-center text-[19px] font-semibold leading-snug tracking-tight text-white"
+              style={{
+                textShadow: "0 1px 14px rgba(0,0,0,0.55)",
+              }}
+            >
+              {headline}
+            </motion.h1>
+          </AnimatePresence>
+
           <AnimatePresence mode="wait">
             {requesting ? (
               <motion.div

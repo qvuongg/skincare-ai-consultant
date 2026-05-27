@@ -16,7 +16,8 @@
       "Bash(awk 'NR==82' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
       "Bash(awk 'NR==80,NR==85' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
       "Bash(awk 'NR==70' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }
