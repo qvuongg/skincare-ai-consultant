@@ -137,14 +137,51 @@ export function SocialProof() {
           ))}
         </motion.div>
 
-        {/* Testimonials */}
-        <motion.div
-          variants={stagger}
-          className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3"
-        >
-          {TESTIMONIALS.map((t) => (
-            <TestimonialCard key={t.id} item={t} />
-          ))}
+        {/* Testimonials — horizontal scroll-snap rail */}
+        <motion.div variants={fadeUp} className="relative mt-12">
+          <div
+            className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4"
+            style={{
+              scrollbarWidth: "none",
+              WebkitOverflowScrolling: "touch",
+              // Push first/last cards in from the edge so they don't crash
+              // into the section's px-6 gutter at scroll start/end.
+              scrollPaddingLeft: "1rem",
+              scrollPaddingRight: "1rem",
+            }}
+          >
+            {TESTIMONIALS.map((t) => (
+              <div
+                key={t.id}
+                className="shrink-0 snap-start"
+                style={{ width: "min(86vw, 380px)" }}
+              >
+                <TestimonialCard item={t} />
+              </div>
+            ))}
+            {/* Trailing spacer so last card can fully snap into view */}
+            <div className="shrink-0" style={{ width: "1px" }} />
+          </div>
+          {/* Edge fade overlays — only on lg+ where the rail is bound by max-w */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 hidden w-12 lg:block"
+            style={{
+              background:
+                "linear-gradient(90deg, rgba(255,255,255,0.95), transparent)",
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 hidden w-12 lg:block"
+            style={{
+              background:
+                "linear-gradient(270deg, rgba(255,255,255,0.95), transparent)",
+            }}
+          />
+          <p className="mt-2 text-center text-[11.5px] font-medium text-foreground/50">
+            Vuốt ngang để xem thêm →
+          </p>
         </motion.div>
         <motion.p
           variants={fadeUp}

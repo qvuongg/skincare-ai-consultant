@@ -1,79 +1,30 @@
 "use client";
 
-import {
-  motion,
-  useScroll,
-  useTransform,
-  type MotionValue,
-} from "framer-motion";
-import {
-  CloudSun,
-  Layers,
-  ScanFace,
-  Sparkles,
-} from "lucide-react";
+import { motion } from "framer-motion";
+import { Layers, ScanFace, Sparkles, Timer } from "lucide-react";
 
+import { FaceScanVisualizer } from "./face-scan-visualizer";
 import { IrisCta } from "./iris-cta";
 import { GLASS_LIGHT, GPU, SPRING, fadeUp, stagger } from "./landing-tokens";
-import { ValueCard, type ValueProp } from "./value-card";
 
-const VALUE_PROPS: ValueProp[] = [
-  {
-    id: "vision",
-    icon: ScanFace,
-    eyebrow: "AI Vision 3D",
-    title: "Quét đa chiều diện rộng",
-    body: "Phát hiện mụn ẩn và vùng hụt ẩm sâu bên dưới bề mặt — những thứ mắt thường hay gương sáng nhất cũng bỏ lỡ.",
-    iconBg:
-      "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(59,130,246,0.95))",
-    glow: "rgba(168,85,247,0.45)",
-  },
-  {
-    id: "routine",
-    icon: Layers,
-    eyebrow: "Routine Tinh Gọn",
-    title: "Nói không với 10 bước rườm rà",
-    body: "Chỉ giữ lại những bước da bạn thực sự thèm khát. Tinh giản, trung thực, vừa đủ để đẹp.",
-    iconBg:
-      "linear-gradient(135deg, rgba(34,197,94,0.95), rgba(45,212,191,0.95))",
-    glow: "rgba(34,197,94,0.40)",
-  },
-  {
-    id: "context",
-    icon: CloudSun,
-    eyebrow: "Bối Cảnh Cá Nhân Hóa",
-    title: "Đồng bộ với đời thực của bạn",
-    body: "Tự động hiệu chỉnh điểm số theo độ tuổi, môi trường máy lạnh và chỉ số UV thực tế tại Đà Nẵng hôm nay.",
-    iconBg:
-      "linear-gradient(135deg, rgba(245,158,11,0.95), rgba(244,114,182,0.95))",
-    glow: "rgba(245,158,11,0.40)",
-  },
-];
+// Hero now anchors on the FaceScanVisualizer (right column) instead of the
+// previous 3 floating value cards. The old value props were repeating things
+// the lower sections already prove — the face scanner does the heavy visual
+// lift here, while the left column carries the message + primary CTA.
 
-// Three floating glass cards on desktop, with different (left, top, z-index)
-// anchors so they layer into a stack. Per-card scrollY parallax in HeroSection
-// then makes them drift past at different rates.
-const FLOATING_POSITIONS: { className: string }[] = [
-  { className: "absolute left-0 right-14 top-0 z-10" },
-  { className: "absolute left-12 right-0 top-44 z-30" },
-  { className: "absolute left-4 right-20 top-[22rem] z-20" },
+const STAT_CHIPS = [
+  { icon: ScanFace, value: "468", label: "điểm mốc khuôn mặt" },
+  { icon: Layers, value: "11", label: "chỉ số da đo lường" },
+  { icon: Timer, value: "60s", label: "mỗi lượt quét" },
 ];
 
 export function Hero({
   onCta,
   reduced,
-  noParallax,
 }: {
   onCta: () => void;
   reduced: boolean;
-  noParallax: boolean;
 }) {
-  const { scrollY } = useScroll();
-  const y1 = useTransform(scrollY, [0, 600], [0, noParallax ? 0 : -30]);
-  const y2 = useTransform(scrollY, [0, 600], [0, noParallax ? 0 : -70]);
-  const y3 = useTransform(scrollY, [0, 600], [0, noParallax ? 0 : -50]);
-  const yOffsets: MotionValue<number>[] = [y1, y2, y3];
-
   return (
     <section className="relative px-6 pt-12 pb-16 lg:pt-20 lg:pb-28">
       <div className="mx-auto max-w-7xl">
@@ -135,15 +86,9 @@ export function Hero({
               variants={fadeUp}
               className="max-w-[44ch] text-pretty text-[16px] leading-relaxed text-foreground/65 sm:text-[17px]"
             >
-              Hệ thống phân tích AI quét{" "}
-              <strong className="font-semibold text-foreground/85">
-                468 điểm mốc
-              </strong>
-              , đo lường chính xác{" "}
-              <strong className="font-semibold text-foreground/85">
-                11 chỉ số da
-              </strong>{" "}
-              và thiết kế Routine cá nhân hóa chỉ trong 60 giây.
+              AI bắt 468 điểm mốc khuôn mặt, chấm điểm 11 chỉ số da và thiết
+              kế Routine cá nhân hóa — đúng độ tuổi, đúng ngân sách, đúng UV
+              Đà Nẵng hôm nay.
             </motion.p>
 
             <motion.div variants={fadeUp}>
@@ -153,67 +98,53 @@ export function Hero({
                 reduced={reduced}
               />
             </motion.div>
+
+            {/* Stat chips — 3 quick numerical proofs under the CTA */}
+            <motion.ul
+              variants={fadeUp}
+              className="mt-2 flex flex-wrap gap-2"
+            >
+              {STAT_CHIPS.map((s) => (
+                <StatChip key={s.label} {...s} />
+              ))}
+            </motion.ul>
           </motion.div>
 
-          <div className="relative">
-            {/* Desktop: absolutely-positioned floating cards with parallax */}
-            <div className="relative hidden h-[600px] lg:block">
-              {VALUE_PROPS.map((vp, idx) => (
-                <FloatingValueCard
-                  key={vp.id}
-                  prop={vp}
-                  index={idx}
-                  y={yOffsets[idx]}
-                  reduced={reduced}
-                />
-              ))}
-            </div>
-            {/* Mobile: stacked column, no overlap, no parallax */}
-            <div className="grid grid-cols-1 gap-4 lg:hidden">
-              {VALUE_PROPS.map((vp, idx) => (
-                <motion.div
-                  key={vp.id}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-60px" }}
-                  transition={{ ...SPRING, delay: 0.05 + idx * 0.08 }}
-                  style={GPU}
-                >
-                  <ValueCard prop={vp} reduced={reduced} />
-                </motion.div>
-              ))}
-            </div>
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 30, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ ...SPRING, delay: 0.2 }}
+            style={GPU}
+          >
+            <FaceScanVisualizer reduced={reduced} />
+          </motion.div>
         </div>
       </div>
     </section>
   );
 }
 
-function FloatingValueCard({
-  prop,
-  index,
-  y,
-  reduced,
+function StatChip({
+  icon: Icon,
+  value,
+  label,
 }: {
-  prop: ValueProp;
-  index: number;
-  y: MotionValue<number>;
-  reduced: boolean;
+  icon: typeof ScanFace;
+  value: string;
+  label: string;
 }) {
   return (
-    <motion.div
-      className={FLOATING_POSITIONS[index].className}
-      style={{ y, ...GPU }}
+    <li
+      className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+      style={GLASS_LIGHT}
     >
-      <motion.div
-        initial={{ opacity: 0, y: 30, scale: 0.94 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ ...SPRING, delay: 0.18 + index * 0.12 }}
-        style={GPU}
-      >
-        <ValueCard prop={prop} reduced={reduced} />
-      </motion.div>
-    </motion.div>
+      <Icon className="size-3.5 text-purple-600" strokeWidth={2.6} />
+      <span className="text-[13px] font-semibold tabular-nums text-foreground">
+        {value}
+      </span>
+      <span className="text-[11.5px] font-medium text-foreground/60">
+        {label}
+      </span>
+    </li>
   );
 }

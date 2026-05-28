@@ -43,42 +43,78 @@ export function Faq() {
 
   return (
     <section className="px-6 py-20 lg:py-28">
-      <motion.div
-        variants={stagger}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, margin: "-80px" }}
-        className="mx-auto max-w-3xl"
-      >
-        <motion.div variants={fadeUp} className="mb-10 text-center">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/65"
-            style={GLASS_LIGHT}
-          >
-            <span className="size-1.5 rounded-full bg-indigo-500" />
-            Trả lời thẳng
-          </span>
-          <h2 className="mt-4 text-balance text-[30px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px]">
-            Câu hỏi thường gặp.
-          </h2>
-          <p className="mx-auto mt-4 max-w-[52ch] text-pretty text-[15px] leading-relaxed text-foreground/65 sm:text-[16px]">
-            Vẫn còn thắc mắc? Nhắn cho team Mika qua trang Hỗ trợ — thường
-            được trả lời trong 24h.
-          </p>
-        </motion.div>
+      <WarmPanel>
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-80px" }}
+          className="relative mx-auto max-w-3xl"
+        >
+          <motion.div variants={fadeUp} className="mb-10 text-center">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/65"
+              style={GLASS_LIGHT}
+            >
+              <span className="size-1.5 rounded-full bg-orange-500" />
+              Trả lời thẳng
+            </span>
+            <h2 className="mt-4 text-balance text-[30px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px]">
+              Câu hỏi thường gặp.
+            </h2>
+            <p className="mx-auto mt-4 max-w-[52ch] text-pretty text-[15px] leading-relaxed text-foreground/65 sm:text-[16px]">
+              Vẫn còn thắc mắc? Nhắn cho team Mika qua trang Hỗ trợ — thường
+              được trả lời trong 24h.
+            </p>
+          </motion.div>
 
-        <motion.ul variants={fadeUp} className="space-y-3">
-          {FAQS.map((item, idx) => (
-            <FaqRow
-              key={idx}
-              item={item}
-              open={openId === idx}
-              onToggle={() => setOpenId(openId === idx ? null : idx)}
-            />
-          ))}
-        </motion.ul>
-      </motion.div>
+          <motion.ul variants={fadeUp} className="space-y-3">
+            {FAQS.map((item, idx) => (
+              <FaqRow
+                key={idx}
+                item={item}
+                open={openId === idx}
+                onToggle={() => setOpenId(openId === idx ? null : idx)}
+              />
+            ))}
+          </motion.ul>
+        </motion.div>
+      </WarmPanel>
     </section>
+  );
+}
+
+// Warm cream/peach backdrop panel — breaks the all-white-glass rhythm of
+// the page. Plays the inverse role of ProcessTimeline's DarkPanel.
+function WarmPanel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="relative overflow-hidden rounded-[2.5rem] px-6 py-16 sm:px-10 lg:px-16 lg:py-24"
+      style={{
+        background:
+          "linear-gradient(180deg, #fff7ed 0%, #fef3c7 50%, #fce7f3 100%)",
+        boxShadow:
+          "0 40px 80px rgba(251,146,60,0.10), inset 0 1px 0 rgba(255,255,255,0.85), inset 0 0 0 1px rgba(255,255,255,0.6)",
+      }}
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -left-[5%] -top-[10%] size-[45%] rounded-full blur-3xl"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(251,146,60,0.30), transparent 65%)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-[15%] right-[5%] size-[50%] rounded-full blur-3xl"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(244,114,182,0.25), transparent 65%)",
+        }}
+      />
+      <div className="relative">{children}</div>
+    </div>
   );
 }
 
