@@ -17,7 +17,12 @@
       "Bash(awk 'NR==80,NR==85' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
       "Bash(awk 'NR==70' /Users/buiquocvuong/Projects/skincare-ai-consultant/src/components/report/insights.ts)",
       "Bash(node *)",
-      "Bash(echo \"EXIT: $?\")"
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/ -o /tmp/home.html)",
+      "Read(//tmp/**)",
+      "Bash(curl *)"
     ]
   }
 }
