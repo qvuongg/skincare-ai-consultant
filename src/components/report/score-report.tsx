@@ -59,7 +59,13 @@ export function ScoreReport({ result, ctx, skinType, onRetry }: Props) {
         breakdown={result.composite_breakdown}
       />
 
-      <RoutineSection ctx={ctx} breakdown={result.composite_breakdown} />
+      <RoutineSection
+        ctx={ctx}
+        breakdown={result.composite_breakdown}
+        recommendedProducts={result.recommended_products}
+        aiMetrics={result.ai_metrics}
+        budgetVnd={result.budget_vnd}
+      />
 
       <motion.p
         initial={{ opacity: 0, y: 8 }}

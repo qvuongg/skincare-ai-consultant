@@ -1,6 +1,6 @@
 import { createClient as createBrowserClient } from "./client";
 import { createAdminClient } from "./admin";
-import type { ProductCategoryId, PriceRange } from "@/types/skin-analysis";
+import type { ProductCategoryId, SyncStatus } from "@/types/skin-analysis";
 
 export interface DBProduct {
   id: string;
@@ -8,12 +8,18 @@ export interface DBProduct {
   brand: string;
   key_ingredients: string[];
   skin_type_tags: string[];
-  price_range: PriceRange;
   category: ProductCategoryId;
-  image_url: string;
-  affiliate_url: string;
+  price_vnd: number;
+  shopee_url: string | null;
+  lazada_url: string | null;
+  tiki_url: string | null;
+  shopee_product_id: string | null;
+  price_synced_at: string | null;
+  sync_status: SyncStatus;
+  image_url: string | null;
   tagline?: string;
   rating?: number;
+  updated_at?: string;
 }
 
 export interface DBLead {

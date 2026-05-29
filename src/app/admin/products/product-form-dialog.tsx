@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { DBProduct } from "@/lib/supabase/db";
+import { priceBucket, formatVND } from "@/types/skin-analysis";
 
 interface Props {
   open: boolean;
@@ -31,22 +32,39 @@ interface Props {
   onSuccess: () => void;
 }
 
-const EMPTY: Omit<DBProduct, "id"> = {
+type FormState = {
+  name: string;
+  brand: string;
+  key_ingredients: string[];
+  skin_type_tags: string[];
+  category: DBProduct["category"];
+  price_vnd: number;
+  shopee_url: string;
+  lazada_url: string;
+  tiki_url: string;
+  image_url: string;
+  tagline: string;
+  rating: number | undefined;
+};
+
+const EMPTY: FormState = {
   name: "",
   brand: "",
   key_ingredients: [],
   skin_type_tags: [],
-  price_range: "mid",
   category: "cleanser",
+  price_vnd: 0,
+  shopee_url: "",
+  lazada_url: "",
+  tiki_url: "",
   image_url: "",
-  affiliate_url: "",
   tagline: "",
   rating: undefined,
 };
 
 export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Props) {
   const isEdit = product !== null;
-  const [form, setForm] = useState<Omit<DBProduct, "id">>(EMPTY);
+  const [form, setForm] = useState<FormState>(EMPTY);
   const [ingredientInput, setIngredientInput] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -59,10 +77,12 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
         brand: product.brand,
         key_ingredients: [...product.key_ingredients],
         skin_type_tags: [...product.skin_type_tags],
-        price_range: product.price_range,
         category: product.category,
+        price_vnd: product.price_vnd,
+        shopee_url: product.shopee_url ?? "",
+        lazada_url: product.lazada_url ?? "",
+        tiki_url: product.tiki_url ?? "",
         image_url: product.image_url ?? "",
-        affiliate_url: product.affiliate_url ?? "",
         tagline: product.tagline ?? "",
         rating: product.rating,
       } : EMPTY);
@@ -72,7 +92,7 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
     }
   }, [open, product]);
 
-  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+  function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
@@ -93,13 +113,28 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
       setError("Tên sản phẩm và thương hiệu là bắt buộc.");
       return;
     }
+    if (!Number.isFinite(form.price_vnd) || form.price_vnd < 0) {
+      setError("Giá phải là số ≥ 0.");
+      return;
+    }
+    if (!form.shopee_url && !form.lazada_url && !form.tiki_url) {
+      setError("Cần ít nhất 1 URL affiliate (Shopee / Lazada / Tiki).");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const payload = {
-        ...form,
+        name: form.name,
+        brand: form.brand,
+        key_ingredients: form.key_ingredients,
+        skin_type_tags: form.skin_type_tags,
+        category: form.category,
+        price_vnd: form.price_vnd,
+        shopee_url: form.shopee_url || null,
+        lazada_url: form.lazada_url || null,
+        tiki_url: form.tiki_url || null,
         image_url: form.image_url || null,
-        affiliate_url: form.affiliate_url || null,
         tagline: form.tagline || null,
         rating: form.rating ?? null,
       };
@@ -125,6 +160,12 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
       setSaving(false);
     }
   }
+
+  const bucketLabel: Record<ReturnType<typeof priceBucket>, string> = {
+    budget: "Rẻ (<200K)",
+    mid: "Tầm trung (200K–500K)",
+    premium: "Cao cấp (>500K)",
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -166,7 +207,7 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
               value={form.tagline ?? ""} onChange={e => set("tagline", e.target.value)} placeholder="Sữa rửa mặt tạo bọt nhẹ nhàng..." />
           </div>
 
-          {/* Category + Price range */}
+          {/* Category + Price (VND) */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-zinc-300 text-sm">Danh mục</Label>
@@ -182,17 +223,21 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-sm">Phân khúc giá</Label>
-              <Select value={form.price_range} onValueChange={v => set("price_range", v as DBProduct["price_range"])}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 focus:ring-[#D4AF37]/50">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-zinc-900 border-zinc-700 text-zinc-100">
-                  <SelectItem value="budget" className="focus:bg-[#D4AF37]/10">Rẻ (budget)</SelectItem>
-                  <SelectItem value="mid" className="focus:bg-[#D4AF37]/10">Tầm trung (mid)</SelectItem>
-                  <SelectItem value="premium" className="focus:bg-[#D4AF37]/10">Cao cấp (premium)</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="text-zinc-300 text-sm">Giá Shopee (VND) *</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1000}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-[#D4AF37]/50"
+                value={form.price_vnd}
+                onChange={e => set("price_vnd", Number(e.target.value) || 0)}
+                placeholder="285000"
+                required
+              />
+              <p className="text-[11px] text-zinc-500">
+                = {formatVND(form.price_vnd)} · phân khúc{" "}
+                <span className="text-[#D4AF37]">{bucketLabel[priceBucket(form.price_vnd)]}</span>
+              </p>
             </div>
           </div>
 
@@ -246,18 +291,37 @@ export function ProductFormDialog({ open, onOpenChange, product, onSuccess }: Pr
             )}
           </div>
 
-          {/* URLs */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-sm">URL hình ảnh</Label>
-              <Input className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-[#D4AF37]/50"
-                value={form.image_url ?? ""} onChange={e => set("image_url", e.target.value)} placeholder="https://..." />
+          {/* Affiliate URLs */}
+          <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-900/40 p-3">
+            <Label className="text-zinc-300 text-sm">Affiliate URLs *</Label>
+            <p className="text-[11px] text-zinc-500 -mt-2">Cần ≥1 URL. Shopee là kênh giá chính (giá nhập tay khớp với giá Shopee tại thời điểm cập nhật).</p>
+            <div className="space-y-2">
+              <div className="grid grid-cols-[80px_1fr] items-center gap-2">
+                <Label className="text-orange-400 text-xs">Shopee</Label>
+                <Input className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-orange-500/50 text-sm"
+                  value={form.shopee_url} onChange={e => set("shopee_url", e.target.value)}
+                  placeholder="https://shopee.vn/..." />
+              </div>
+              <div className="grid grid-cols-[80px_1fr] items-center gap-2">
+                <Label className="text-sky-400 text-xs">Lazada</Label>
+                <Input className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-sky-500/50 text-sm"
+                  value={form.lazada_url} onChange={e => set("lazada_url", e.target.value)}
+                  placeholder="https://lazada.vn/..." />
+              </div>
+              <div className="grid grid-cols-[80px_1fr] items-center gap-2">
+                <Label className="text-blue-400 text-xs">Tiki</Label>
+                <Input className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-blue-500/50 text-sm"
+                  value={form.tiki_url} onChange={e => set("tiki_url", e.target.value)}
+                  placeholder="https://tiki.vn/..." />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-sm">Affiliate URL</Label>
-              <Input className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-[#D4AF37]/50"
-                value={form.affiliate_url ?? ""} onChange={e => set("affiliate_url", e.target.value)} placeholder="https://..." />
-            </div>
+          </div>
+
+          {/* Image URL */}
+          <div className="space-y-1.5">
+            <Label className="text-zinc-300 text-sm">URL hình ảnh</Label>
+            <Input className="bg-zinc-900 border-zinc-700 text-zinc-100 focus-visible:ring-[#D4AF37]/50"
+              value={form.image_url} onChange={e => set("image_url", e.target.value)} placeholder="https://..." />
           </div>
 
           <DialogFooter className="pt-2 gap-2">

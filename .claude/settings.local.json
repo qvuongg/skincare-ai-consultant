@@ -22,7 +22,11 @@
       "Bash(curl -s http://localhost:3000/)",
       "Bash(curl -s http://localhost:3000/ -o /tmp/home.html)",
       "Read(//tmp/**)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(git -C /Users/buiquocvuong/Projects/skincare-ai-consultant mv SPEC.md docs/SPEC.md)",
+      "Bash(git -C /Users/buiquocvuong/Projects/skincare-ai-consultant mv design.md docs/design.md)",
+      "Bash(git -C /Users/buiquocvuong/Projects/skincare-ai-consultant status --short)",
+      "WebFetch(domain:open-api.affiliate.shopee.vn)"
     ]
   }
 }

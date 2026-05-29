@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DBProduct, fetchAllProducts } from "@/lib/supabase/db";
+import { formatVND, priceBucket } from "@/types/skin-analysis";
 import { ProductFormDialog } from "./product-form-dialog";
 
 export default function ProductsPage() {
@@ -60,8 +61,7 @@ export default function ProductsPage() {
     }
   }
 
-  const priceLabel: Record<string, string> = { budget: "Rẻ", mid: "Tầm trung", premium: "Cao cấp" };
-  const priceColor: Record<string, string> = {
+  const bucketColor: Record<string, string> = {
     budget: "border-emerald-500/60 text-emerald-400",
     mid: "border-sky-500/60 text-sky-400",
     premium: "border-[#D4AF37]/60 text-[#D4AF37]",
@@ -105,7 +105,7 @@ export default function ProductsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-zinc-800">
-                    {["Ảnh","Tên sản phẩm","Thương hiệu","Danh mục","Phân khúc","Thành phần","Thao tác"].map(h => (
+                    {["Ảnh","Tên sản phẩm","Thương hiệu","Danh mục","Giá","Thành phần","Thao tác"].map(h => (
                       <TableHead key={h} className={`text-zinc-400 text-xs font-medium ${h === "Thao tác" ? "text-right" : ""}`}>{h}</TableHead>
                     ))}
                   </TableRow>
@@ -133,9 +133,12 @@ export default function ProductsPage() {
                         <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 capitalize text-[11px]">{product.category}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={`capitalize text-[11px] ${priceColor[product.price_range] ?? "border-zinc-600 text-zinc-400"}`}>
-                          {priceLabel[product.price_range] ?? product.price_range}
-                        </Badge>
+                        <div className="space-y-0.5">
+                          <p className="font-mono text-sm text-zinc-100">{formatVND(product.price_vnd)}</p>
+                          <Badge variant="outline" className={`capitalize text-[10px] py-0 ${bucketColor[priceBucket(product.price_vnd)]}`}>
+                            {priceBucket(product.price_vnd)}
+                          </Badge>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1 max-w-[180px]">
@@ -155,8 +158,8 @@ export default function ProductsPage() {
                           <Button variant="ghost" size="icon" className="size-8 text-red-400 hover:text-red-300 hover:bg-red-400/10" disabled={deleting === product.id} onClick={() => handleDelete(product.id)}>
                             {deleting === product.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
                           </Button>
-                          {product.affiliate_url && (
-                            <a href={product.affiliate_url} target="_blank" rel="noopener noreferrer">
+                          {product.shopee_url && (
+                            <a href={product.shopee_url} target="_blank" rel="noopener noreferrer">
                               <Button variant="ghost" size="icon" className="size-8 text-amber-400 hover:text-amber-300 hover:bg-amber-400/10">
                                 <ExternalLink className="size-3.5" />
                               </Button>

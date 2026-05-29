@@ -17,7 +17,7 @@ export default async function AffiliateRedirectPage({
   const admin = createAdminClient();
   const { data: product, error } = await admin
     .from("products")
-    .select("id, affiliate_url, category")
+    .select("id, shopee_url, lazada_url, tiki_url, category")
     .eq("id", slug)
     .single();
 
@@ -26,6 +26,11 @@ export default async function AffiliateRedirectPage({
   }
 
   if (!product) {
+    redirect("/");
+  }
+
+  const target = product.shopee_url ?? product.lazada_url ?? product.tiki_url;
+  if (!target) {
     redirect("/");
   }
 
@@ -40,5 +45,5 @@ export default async function AffiliateRedirectPage({
     console.error("Failed to log affiliate click:", e);
   }
 
-  redirect(product.affiliate_url);
+  redirect(target);
 }

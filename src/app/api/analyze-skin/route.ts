@@ -8,6 +8,7 @@ import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import { recordSkinScan } from "@/lib/analytics/events";
 import { t } from "@/lib/translations";
 import { matchProducts } from "@/lib/products/matcher";
+import { deriveRecommendedIngredients } from "@/lib/products/derive-ingredients";
 import {
   computeFinalScore,
   type AgeGroup,
@@ -296,12 +297,45 @@ async function handleTripleScan(parsed: TripleParsed): Promise<Response> {
   const scoringInput = buildScoringOnboarding(parsed.onboarding);
   const score = computeFinalScore(metrics, scoringInput);
 
+  // Product picks for the routine card. Filters applied in priority order:
+  //   skin_type (hard) → budget (hard) → AiMetrics-derived ingredients (rank).
+  const admin = createAdminClient();
+  const { data: catalogue, error: catalogueError } = await admin
+    .from("products")
+    .select("*")
+    .order("brand", { ascending: true });
+  if (catalogueError) {
+    console.error("Failed to load products for routine:", catalogueError);
+  }
+
+  const habits =
+    typeof parsed.onboarding === "object" && parsed.onboarding !== null
+      ? ((parsed.onboarding as Record<string, unknown>).habits as
+          | Record<string, unknown>
+          | undefined)
+      : undefined;
+  const rawBudget = habits?.budget_vnd;
+  const budgetVnd =
+    typeof rawBudget === "number" && Number.isFinite(rawBudget) && rawBudget > 0
+      ? rawBudget
+      : null;
+
+  const recommendedIngredients = deriveRecommendedIngredients(
+    metrics,
+    ctx?.goals ?? null
+  );
+  const recommendedProducts = matchProducts(
+    catalogue ?? [],
+    ctx?.skin_type_self_reported ?? "",
+    budgetVnd,
+    recommendedIngredients
+  );
+
   // Persist the report. Failure here should NOT block the user's response —
   // we still return the scored payload so the UI can render. Mirrors the
   // existing fire-and-forget posture for analytics.
   let scanReportId: string | null = null;
   try {
-    const admin = createAdminClient();
     const { data, error } = await admin
       .from("scan_reports")
       .insert([
@@ -344,6 +378,8 @@ async function handleTripleScan(parsed: TripleParsed): Promise<Response> {
       raw: score.modifier_total_raw,
       applied: score.modifier_total_applied,
     },
+    recommended_products: recommendedProducts,
+    budget_vnd: budgetVnd,
     disclaimer: MEDICAL_DISCLAIMER,
   });
 }
@@ -432,9 +468,12 @@ async function handleLegacyScan(parsed: LegacyParsedInput): Promise<Response> {
     throw productsError;
   }
 
+  // Legacy single-image branch has no budget context — pass null to skip
+  // the budget filter and just rank by ingredient overlap.
   const recommendedProducts = matchProducts(
     products ?? [],
     analysis.skin_type,
+    null,
     analysis.ingredients
   );
 

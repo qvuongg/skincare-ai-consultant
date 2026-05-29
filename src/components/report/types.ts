@@ -9,6 +9,8 @@ import type {
   LifestyleModifier,
   ScoreBandId,
 } from "@/lib/scoring/engine";
+import type { HeroProduct } from "@/lib/products/matcher";
+import type { ProductCategoryId } from "@/types/skin-analysis";
 
 export type ScanReportScoreBand = {
   id: ScoreBandId;
@@ -28,6 +30,10 @@ export type ScanReportPayload = {
   composite_breakdown: CompositeBreakdown;
   lifestyle_modifiers: LifestyleModifier[];
   modifier_total: { raw: number; applied: number };
+  recommended_products: Record<ProductCategoryId, HeroProduct | null>;
+  /** User's monthly skincare budget from onboarding (VND). Null when the
+   *  user skipped the budget step. Drives the BudgetBar on the routine. */
+  budget_vnd: number | null;
   disclaimer: string;
 };
 

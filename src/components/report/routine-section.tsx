@@ -9,13 +9,18 @@ import {
   ShoppingBag,
   Sparkles,
   Sun,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
-import type { CompositeBreakdown } from "@/lib/scoring/engine";
+import type { AiMetrics, CompositeBreakdown } from "@/lib/scoring/engine";
+import type { HeroProduct } from "@/lib/products/matcher";
+import type { ProductCategoryId } from "@/types/skin-analysis";
+import { formatVND } from "@/types/skin-analysis";
 
 import { GlassCard } from "./glass-card";
+import { explainPick } from "./explain-pick";
 import type { ReportContext } from "./insights";
 import { REPORT_SPRING } from "./types";
 
@@ -110,105 +115,119 @@ const INGREDIENT_TEXT: Record<IngredientBadge["tone"], string> = {
 const IRIS = "#7C5CFC";
 
 // ════════════════════════════════════════════════════════════════════════
-// Mock product catalogue. Replace with API/Supabase fetch once the routine
-// engine is live. Shape is intentionally identical to the future payload.
+// DB → RoutineProduct mapping
+// ────────────────────────────────────────────────────────────────────────
+// Picks one HeroProduct per step from `recommendedProducts` and rewrites it
+// into the local RoutineProduct shape. ai_reason copy is category-level
+// placeholder text until the routine engine (§9) generates personalized
+// rationales per-user.
 // ════════════════════════════════════════════════════════════════════════
 
-const MORNING_PRODUCTS: readonly RoutineProduct[] = [
-  {
-    step_id: "cleanse",
-    brand: "Cetaphil",
-    name: "Gentle Skin Cleanser",
-    hero_color: "#BFDBFE",
-    ingredients: [{ label: "pH 5.5", tone: "barrier" }],
-    price_vnd: 215_000,
-    ai_reason: {
-      ingredient: "công thức non-foaming dịu nhẹ",
-      target_issue: "hàng rào da đang nhạy cảm vào buổi sáng",
-    },
-    affiliate_url: "https://shopee.vn/cetaphil-gentle-cleanser",
-  },
-  {
-    step_id: "treat",
-    brand: "The Ordinary",
-    name: "Niacinamide 10% + Zinc 1%",
-    hero_color: "#FBCFE8",
-    ingredients: [
-      { label: "Niacinamide 10%", tone: "vitamin" },
-      { label: "Zinc 1%", tone: "barrier" },
-    ],
-    price_vnd: 285_000,
-    ai_reason: {
-      ingredient: "Niacinamide 10%",
-      target_issue: "lỗ chân lông to và vết thâm sau mụn",
-    },
-    affiliate_url: "https://shopee.vn/the-ordinary-niacinamide",
-  },
-  {
-    step_id: "protect",
-    brand: "Anessa",
-    name: "Perfect UV Sunscreen Skincare Milk SPF50+",
-    hero_color: "#FDE68A",
-    ingredients: [
-      { label: "SPF50+ PA++++", tone: "spf" },
-      { label: "Hyaluronic Acid", tone: "barrier" },
-    ],
-    price_vnd: 545_000,
-    ai_reason: {
-      ingredient: "lá chắn UV SPF50+ PA++++",
-      target_issue: "sạm nám và lão hóa do tia UV ở khí hậu nhiệt đới",
-    },
-    affiliate_url: "https://shopee.vn/anessa-perfect-uv",
-  },
-];
+const HERO_COLOR_BY_CATEGORY: Record<ProductCategoryId, string> = {
+  cleanser: "#BFDBFE",
+  treatment: "#FBCFE8",
+  moisturizer: "#A7F3D0",
+  sunscreen: "#FDE68A",
+};
 
-const EVENING_PRODUCTS: readonly RoutineProduct[] = [
-  {
-    step_id: "cleanse",
-    brand: "Bioderma",
-    name: "Sensibio H2O Micellar Water",
-    hero_color: "#C7D2FE",
-    ingredients: [{ label: "Micellar", tone: "barrier" }],
-    price_vnd: 460_000,
-    ai_reason: {
-      ingredient: "phân tử micelle",
-      target_issue: "lớp cặn make-up & kem chống nắng tích tụ trong ngày",
-    },
-    affiliate_url: "https://shopee.vn/bioderma-sensibio",
-  },
-  {
-    step_id: "treat",
-    brand: "Paula's Choice",
-    name: "Skin Perfecting 2% BHA Liquid Exfoliant",
-    hero_color: "#FECACA",
-    ingredients: [
-      { label: "BHA 2%", tone: "acid" },
-      { label: "Green Tea", tone: "barrier" },
+function inferTone(
+  ingredient: string,
+  category: ProductCategoryId
+): IngredientBadge["tone"] {
+  const lower = ingredient.toLowerCase();
+  if (
+    category === "sunscreen" ||
+    lower.includes("spf") ||
+    lower.includes("pa+")
+  )
+    return "spf";
+  if (
+    lower.includes("bha") ||
+    lower.includes("aha") ||
+    lower.includes("salicylic") ||
+    lower.includes("glycolic") ||
+    lower.includes("lactic")
+  )
+    return "acid";
+  if (
+    lower.includes("niacinamide") ||
+    lower.includes("vitamin") ||
+    lower.includes("retinol") ||
+    lower.includes("peptide")
+  )
+    return "vitamin";
+  return "barrier";
+}
+
+function toRoutineProduct(
+  hero: HeroProduct,
+  step_id: RoutineStepId,
+  metrics: AiMetrics
+): RoutineProduct {
+  const rationale = explainPick(hero, metrics, hero.category);
+  return {
+    step_id,
+    brand: hero.brand,
+    name: hero.name,
+    hero_color: HERO_COLOR_BY_CATEGORY[hero.category],
+    ingredients: hero.key_ingredients.slice(0, 2).map((label) => ({
+      label,
+      tone: inferTone(label, hero.category),
+    })),
+    price_vnd: hero.price_vnd,
+    ai_reason: rationale,
+    affiliate_url: hero.actual_url,
+  };
+}
+
+/** Per-step slot — `null` means matcher had no eligible product for that
+ *  category (e.g. budget too low). The component renders an empty-state
+ *  card instead of skipping the step silently. */
+type RoutineSlot = { step_id: RoutineStepId; product: RoutineProduct | null };
+
+function buildRoutines(
+  matched: Record<ProductCategoryId, HeroProduct | null>,
+  metrics: AiMetrics
+): { morning: RoutineSlot[]; evening: RoutineSlot[] } {
+  // The matcher already picked the single best product per category given
+  // skin_type + budget + AiMetrics. AM and PM share cleanse & treat picks;
+  // only the "protect" slot differs (sunscreen by day, moisturizer at night).
+  const slot = (
+    step_id: RoutineStepId,
+    hero: HeroProduct | null
+  ): RoutineSlot => ({
+    step_id,
+    product: hero ? toRoutineProduct(hero, step_id, metrics) : null,
+  });
+
+  return {
+    morning: [
+      slot("cleanse", matched.cleanser),
+      slot("treat", matched.treatment),
+      slot("protect", matched.sunscreen),
     ],
-    price_vnd: 720_000,
-    ai_reason: {
-      ingredient: "BHA (Salicylic Acid) 2%",
-      target_issue: "mụn ẩn dưới da và bít tắc lỗ chân lông",
-    },
-    affiliate_url: "https://shopee.vn/paulas-choice-bha",
-  },
-  {
-    step_id: "protect",
-    brand: "La Roche-Posay",
-    name: "Toleriane Double Repair Moisturizer",
-    hero_color: "#A7F3D0",
-    ingredients: [
-      { label: "Ceramide-3", tone: "barrier" },
-      { label: "Niacinamide", tone: "vitamin" },
+    evening: [
+      slot("cleanse", matched.cleanser),
+      slot("treat", matched.treatment),
+      slot("protect", matched.moisturizer),
     ],
-    price_vnd: 425_000,
-    ai_reason: {
-      ingredient: "bộ ba Ceramide & Niacinamide",
-      target_issue: "phục hồi hàng rào da trong giờ vàng 22h–2h sáng",
-    },
-    affiliate_url: "https://shopee.vn/lrp-toleriane",
-  },
-];
+  };
+}
+
+/** Sum of unique products bought once for the month: cleanser + treatment +
+ *  sunscreen + moisturizer. AM/PM share cleanse + treat picks so we don't
+ *  double-count them. Returns 0 when nothing matches — caller should hide
+ *  the budget bar in that case. */
+function totalMonthlyCost(
+  matched: Record<ProductCategoryId, HeroProduct | null>
+): number {
+  return (
+    (matched.cleanser?.price_vnd ?? 0) +
+    (matched.treatment?.price_vnd ?? 0) +
+    (matched.sunscreen?.price_vnd ?? 0) +
+    (matched.moisturizer?.price_vnd ?? 0)
+  );
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Component
@@ -220,12 +239,33 @@ type Props = {
    *  product-selection personalization. Currently surfaced via the
    *  intro copy only. */
   breakdown: CompositeBreakdown;
+  /** Matcher output from the API. Routine engine §9 will replace this
+   *  with personalized routine objects (incl. AI rationale). */
+  recommendedProducts: Record<ProductCategoryId, HeroProduct | null>;
+  /** Raw 11-metric scan output — drives the metric-aware product rationale. */
+  aiMetrics: AiMetrics;
+  /** User's monthly budget from onboarding. Null → hide BudgetBar. */
+  budgetVnd: number | null;
 };
 
-export function RoutineSection({ ctx, breakdown }: Props) {
+export function RoutineSection({
+  ctx,
+  breakdown,
+  recommendedProducts,
+  aiMetrics,
+  budgetVnd,
+}: Props) {
   const [tab, setTab] = useState<RoutineTab>("morning");
 
-  const products = tab === "morning" ? MORNING_PRODUCTS : EVENING_PRODUCTS;
+  const routines = useMemo(
+    () => buildRoutines(recommendedProducts, aiMetrics),
+    [recommendedProducts, aiMetrics]
+  );
+  const totalCost = useMemo(
+    () => totalMonthlyCost(recommendedProducts),
+    [recommendedProducts]
+  );
+  const slots = tab === "morning" ? routines.morning : routines.evening;
   const primaryConcern = pickPrimaryConcern(breakdown);
 
   return (
@@ -239,6 +279,8 @@ export function RoutineSection({ ctx, breakdown }: Props) {
         goalLabel={ctx.goalLabel}
       />
 
+      <BudgetBar totalVnd={totalCost} budgetVnd={budgetVnd} />
+
       <TabBar tab={tab} onChange={setTab} />
 
       <AnimatePresence mode="wait">
@@ -251,14 +293,14 @@ export function RoutineSection({ ctx, breakdown }: Props) {
           className="flex flex-col gap-5"
         >
           {STEPS.map((step, stepIdx) => {
-            const stepProducts = products.filter((p) => p.step_id === step.id);
-            if (stepProducts.length === 0) return null;
+            const slot = slots.find((s) => s.step_id === step.id);
             return (
               <StepBlock
                 key={step.id}
                 step={step}
-                products={stepProducts}
+                product={slot?.product ?? null}
                 stepIndex={stepIdx}
+                budgetVnd={budgetVnd}
               />
             );
           })}
@@ -394,12 +436,14 @@ function TabButton({
 
 function StepBlock({
   step,
-  products,
+  product,
   stepIndex,
+  budgetVnd,
 }: {
   step: StepSpec;
-  products: readonly RoutineProduct[];
+  product: RoutineProduct | null;
   stepIndex: number;
+  budgetVnd: number | null;
 }) {
   return (
     <motion.div
@@ -429,16 +473,171 @@ function StepBlock({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5">
-        {products.map((product, i) => (
-          <ProductCard
-            key={`${step.id}-${i}`}
-            product={product}
-            delay={0.14 + stepIndex * 0.06 + i * 0.05}
-          />
-        ))}
-      </div>
+      {product ? (
+        <ProductCard product={product} delay={0.14 + stepIndex * 0.06} />
+      ) : (
+        <EmptyStepCard
+          stepTitle={step.title}
+          budgetVnd={budgetVnd}
+          delay={0.14 + stepIndex * 0.06}
+        />
+      )}
     </motion.div>
+  );
+}
+
+function EmptyStepCard({
+  stepTitle,
+  budgetVnd,
+  delay,
+}: {
+  stepTitle: string;
+  budgetVnd: number | null;
+  delay: number;
+}) {
+  const reason = budgetVnd
+    ? `Chưa có sản phẩm ≤ ${formatVND(budgetVnd)} phù hợp với da của bạn cho bước này.`
+    : "Chưa có sản phẩm phù hợp với loại da bạn khai báo cho bước này.";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...REPORT_SPRING, delay }}
+    >
+      <GlassCard className="p-4">
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden
+            className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full"
+            style={{
+              background: "color-mix(in srgb, #F59E0B 18%, white)",
+              color: "#92400E",
+            }}
+          >
+            ⚠
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-semibold tracking-tight text-foreground">
+              {stepTitle} — chưa tìm được sản phẩm khớp
+            </p>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-foreground/65">
+              {reason} Bạn có thể tăng budget ở onboarding hoặc đợi shop bổ
+              sung thêm catalogue.
+            </p>
+          </div>
+        </div>
+      </GlassCard>
+    </motion.div>
+  );
+}
+
+function BudgetBar({
+  totalVnd,
+  budgetVnd,
+}: {
+  totalVnd: number;
+  budgetVnd: number | null;
+}) {
+  // Nothing matched → hide entirely (empty-state cards already explain).
+  if (totalVnd <= 0) return null;
+
+  const hasBudget = budgetVnd !== null && budgetVnd > 0;
+  const ratio = hasBudget ? totalVnd / budgetVnd : 0;
+  const diff = hasBudget ? budgetVnd - totalVnd : 0;
+
+  // Color band: green ≤90% · amber 90-100% · red >100%
+  const band: "ok" | "tight" | "over" =
+    !hasBudget ? "ok" : ratio > 1 ? "over" : ratio > 0.9 ? "tight" : "ok";
+
+  const accent: Record<typeof band, { fg: string; bar: string; bg: string }> = {
+    ok: {
+      fg: "#15803D",
+      bar: "linear-gradient(90deg, #22C55E, #16A34A)",
+      bg: "color-mix(in srgb, #22C55E 14%, white)",
+    },
+    tight: {
+      fg: "#92400E",
+      bar: "linear-gradient(90deg, #F59E0B, #D97706)",
+      bg: "color-mix(in srgb, #F59E0B 16%, white)",
+    },
+    over: {
+      fg: "#B91C1C",
+      bar: "linear-gradient(90deg, #EF4444, #DC2626)",
+      bg: "color-mix(in srgb, #EF4444 14%, white)",
+    },
+  };
+
+  const message = !hasBudget
+    ? "Bạn chưa khai báo budget ở onboarding"
+    : band === "over"
+      ? `Vượt budget ${formatVND(-diff)}`
+      : band === "tight"
+        ? `Sát budget — còn ${formatVND(diff)}`
+        : `Tiết kiệm ${formatVND(diff)}`;
+
+  const fillPct = hasBudget ? Math.min(ratio, 1) * 100 : 100;
+
+  return (
+    <div
+      className="sticky top-2 z-20 -mx-1 px-1"
+      // sticky requires the scroll-context ancestor to have overflow:visible;
+      // the report page scrolls on body, which satisfies that.
+    >
+      <div
+        className="rounded-2xl border border-white/55 px-3.5 py-3"
+        style={{
+          background: "rgba(255,255,255,0.75)",
+          backdropFilter: "blur(20px) saturate(160%)",
+          WebkitBackdropFilter: "blur(20px) saturate(160%)",
+          boxShadow:
+            "0 14px 32px rgba(31,38,135,0.10), inset 0 1px 0 rgba(255,255,255,0.6)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              aria-hidden
+              className="flex size-7 shrink-0 items-center justify-center rounded-full"
+              style={{ background: accent[band].bg, color: accent[band].fg }}
+            >
+              <Wallet className="size-3.5" strokeWidth={2.2} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/55">
+                Routine tháng
+              </p>
+              <p className="truncate text-[13px] font-semibold tabular-nums tracking-tight text-foreground">
+                {formatVND(totalVnd)}
+                {hasBudget && (
+                  <span className="text-foreground/45"> / {formatVND(budgetVnd)}</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <span
+            className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold tracking-tight"
+            style={{ background: accent[band].bg, color: accent[band].fg }}
+          >
+            {message}
+          </span>
+        </div>
+
+        {hasBudget && (
+          <div
+            className="mt-2 h-1.5 w-full overflow-hidden rounded-full"
+            style={{ background: "rgba(15,23,42,0.08)" }}
+          >
+            <motion.div
+              className="h-full rounded-full"
+              style={{ background: accent[band].bar }}
+              initial={{ width: 0 }}
+              animate={{ width: `${fillPct}%` }}
+              transition={REPORT_SPRING}
+            />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
