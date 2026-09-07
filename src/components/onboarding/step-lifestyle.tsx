@@ -99,8 +99,6 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
     const controller = new AbortController();
     let cancelled = false;
 
-    // Defined inside the effect but only invoked from async callbacks
-    // (queueMicrotask, geolocation, fetch) — never sync from the effect body.
     const applyFallback = () => {
       if (cancelled) return;
       onChange({
@@ -112,42 +110,53 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
       setUsedFallback(true);
     };
 
+    const fetchWeather = async (coords?: { latitude: number; longitude: number }) => {
+      try {
+        const url = coords
+          ? `/api/weather?lat=${coords.latitude}&lon=${coords.longitude}`
+          : `/api/weather`;
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error("weather");
+        const json = (await res.json()) as {
+          uv: number;
+          humidity: number;
+          city: string;
+        };
+        if (cancelled) return;
+        onChange({
+          ...value,
+          location: json.city,
+          uv_index: Math.round(json.uv),
+          humidity: Math.round(json.humidity),
+        });
+        setUsedFallback(false);
+      } catch {
+        if (!coords) {
+          applyFallback();
+        }
+      }
+    };
+
+    // 1. Immediately fetch weather via IP (lightning fast, doesn't require GPS permission)
+    fetchWeather();
+
+    // 2. If geolocation is available, try to get high-accuracy coordinates to refine
     const hasGeo =
       typeof navigator !== "undefined" && "geolocation" in navigator;
 
-    if (!hasGeo) {
-      queueMicrotask(applyFallback);
-    } else {
+    if (hasGeo) {
       navigator.geolocation.getCurrentPosition(
-        async (pos) => {
+        (pos) => {
           if (cancelled) return;
-          try {
-            const { latitude, longitude } = pos.coords;
-            const res = await fetch(
-              `/api/weather?lat=${latitude}&lon=${longitude}`,
-              { signal: controller.signal }
-            );
-            if (!res.ok) throw new Error("weather");
-            const json = (await res.json()) as {
-              uv: number;
-              humidity: number;
-              city: string;
-            };
-            if (cancelled) return;
-            onChange({
-              ...value,
-              location: json.city,
-              uv_index: Math.round(json.uv),
-              humidity: Math.round(json.humidity),
-            });
-          } catch {
-            applyFallback();
-          }
+          const { latitude, longitude } = pos.coords;
+          fetchWeather({ latitude, longitude });
         },
-        () => applyFallback(),
+        () => {
+          // Geolocation denied or unavailable — IP weather already handled it
+        },
         {
           enableHighAccuracy: false,
-          timeout: GEO_TIMEOUT_MS,
+          timeout: 4000,
           maximumAge: 60_000,
         }
       );

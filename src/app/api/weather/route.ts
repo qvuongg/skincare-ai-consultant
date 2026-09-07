@@ -23,33 +23,50 @@ export async function GET(request: Request) {
   const latRaw = searchParams.get("lat");
   const lonRaw = searchParams.get("lon");
 
-  if (latRaw == null || lonRaw == null) {
-    return NextResponse.json(
-      { error: "Missing lat or lon query parameters." },
-      { status: 400 }
-    );
-  }
+  let query: string;
 
-  const lat = Number(latRaw);
-  const lon = Number(lonRaw);
+  if (latRaw != null && lonRaw != null) {
+    const lat = Number(latRaw);
+    const lon = Number(lonRaw);
 
-  if (
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lon) ||
-    lat < -90 ||
-    lat > 90 ||
-    lon < -180 ||
-    lon > 180
-  ) {
-    return NextResponse.json(
-      { error: "Invalid coordinates." },
-      { status: 400 }
-    );
+    if (
+      Number.isFinite(lat) &&
+      Number.isFinite(lon) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lon >= -180 &&
+      lon <= 180
+    ) {
+      query = `${lat},${lon}`;
+    } else {
+      return NextResponse.json(
+        { error: "Invalid coordinates." },
+        { status: 400 }
+      );
+    }
+  } else {
+    // If coordinates are missing, resolve by client IP (or auto:ip for local dev / default)
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    const realIp = request.headers.get("x-real-ip");
+    const clientIp = (forwardedFor ? forwardedFor.split(",")[0].trim() : realIp?.trim()) || null;
+
+    if (
+      clientIp &&
+      clientIp !== "::1" &&
+      clientIp !== "127.0.0.1" &&
+      !clientIp.startsWith("192.168.") &&
+      !clientIp.startsWith("10.") &&
+      !clientIp.startsWith("172.")
+    ) {
+      query = clientIp;
+    } else {
+      query = "auto:ip";
+    }
   }
 
   const upstream = new URL(WEATHER_API_URL);
   upstream.searchParams.set("key", apiKey);
-  upstream.searchParams.set("q", `${lat},${lon}`);
+  upstream.searchParams.set("q", query);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

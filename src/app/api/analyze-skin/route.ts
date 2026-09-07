@@ -345,7 +345,11 @@ async function handleTripleScan(parsed: TripleParsed): Promise<Response> {
           lifestyle_modifiers: score.lifestyle_modifiers,
           overall_score: score.final_score,
           score_band: score.band.id,
-          recommended_routine: null, // Phase 2 — routine engine
+          recommended_routine: {
+            recommended_products: recommendedProducts,
+            budget_vnd: budgetVnd,
+            onboarding_context: ctx,
+          },
         },
       ])
       .select("id")

@@ -75,7 +75,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, warning: "Database insert failed" });
     }
 
-    return NextResponse.json({ success: true, lead });
+    return NextResponse.json({
+      success: true,
+      lead,
+      lead_id: lead?.id ?? null,
+    });
   } catch (error) {
     console.error("Onboarding API error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

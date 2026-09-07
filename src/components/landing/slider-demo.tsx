@@ -356,6 +356,7 @@ function ScoreRing({
           strokeWidth={STROKE}
           strokeLinecap="round"
           strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
           animate={{ strokeDashoffset: offset }}
           transition={reduced ? { duration: 0 } : SPRING}
         />

@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
 import { MeshGradient } from "@/components/onboarding/mesh-gradient";
@@ -110,6 +111,7 @@ const PAGE_VARIANTS = {
 };
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const [stepIndex, setStepIndex] = useState(0);
   const [direction, setDirection] = useState<1 | -1>(1);
   const [data, setData] = useState<FormData>(INITIAL);
@@ -130,7 +132,7 @@ export default function OnboardingPage() {
     setStepIndex((s) => Math.max(s - 1, 0));
   }, []);
 
-  const submitOnboarding = useCallback((d: FormData) => {
+  const submitOnboarding = useCallback(async (d: FormData): Promise<string | null> => {
     const goalLabel = joinGoalLabels(d.primary_goals);
     const payload = {
       user_name: d.user_name,
@@ -161,16 +163,24 @@ export default function OnboardingPage() {
       },
       raw_data: d,
     };
-    // Fire-and-forget — Supabase failures shouldn't block the UX.
-    void fetch("/api/onboarding", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch((e) => console.error("onboarding save failed", e));
+    try {
+      const res = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return json.lead_id ?? json.lead?.id ?? null;
+      }
+    } catch (e) {
+      console.error("onboarding save failed", e);
+    }
+    return null;
   }, []);
 
   const runAnalysis = useCallback(
-    async (files: File[], snapshot: FormData) => {
+    async (files: File[], snapshot: FormData, leadPromise?: Promise<string | null>) => {
       setAnalysisError(null);
       setAnalysisResult(null);
       setAnalysisLoading(true);
@@ -216,6 +226,8 @@ export default function OnboardingPage() {
           },
         };
 
+        const leadId = leadPromise ? await leadPromise : null;
+
         const res = await fetch("/api/analyze-skin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -225,6 +237,7 @@ export default function OnboardingPage() {
               data: c.base64,
             })),
             onboarding: onboardingContext,
+            lead_id: leadId,
           }),
         });
 
@@ -246,6 +259,25 @@ export default function OnboardingPage() {
           await new Promise((r) => setTimeout(r, MIN_ANALYZING_MS - elapsed));
         }
 
+        const scanReportId = (payload as { scan_report_id?: string })?.scan_report_id;
+        if (scanReportId) {
+          // Cache in sessionStorage for instant hydration on the target page
+          try {
+            sessionStorage.setItem(
+              `mika_report_${scanReportId}`,
+              JSON.stringify({
+                result: payload,
+                snapshot,
+              })
+            );
+          } catch (storageErr) {
+            console.warn("SessionStorage cache write skipped:", storageErr);
+          }
+          router.push(`/report/${scanReportId}`);
+          return;
+        }
+
+        // Fallback if no scanReportId is returned
         setAnalysisResult(payload as AnalysisResult);
       } catch (e) {
         setAnalysisError(
@@ -257,17 +289,17 @@ export default function OnboardingPage() {
         setAnalysisLoading(false);
       }
     },
-    []
+    [router]
   );
 
   const handleCapture = useCallback(
     (files: File[]) => {
       if (!files.length) return;
       const snapshot = data;
-      submitOnboarding(snapshot);
+      const leadPromise = submitOnboarding(snapshot);
       setDirection(1);
       setStepIndex(STEP_KEYS.indexOf("review"));
-      void runAnalysis(files, snapshot);
+      void runAnalysis(files, snapshot, leadPromise);
     },
     [data, submitOnboarding, runAnalysis]
   );
