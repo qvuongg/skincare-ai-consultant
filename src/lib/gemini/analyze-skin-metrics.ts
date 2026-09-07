@@ -33,7 +33,7 @@ function getGeminiModelIds(): string[] {
       .filter(Boolean);
     if (parsed.length > 0) return parsed;
   }
-  return ["gemini-2.5-flash"];
+  return ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
 }
 
 function getApiKey(): string {
@@ -55,19 +55,28 @@ function stripJsonFence(text: string): string {
   return trimmed;
 }
 
-function isRetryable503(err: unknown): boolean {
+function isRetryableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
   return (
     msg.includes("503") ||
+    msg.includes("429") ||
+    msg.includes("500") ||
+    msg.includes("502") ||
+    msg.includes("504") ||
     lower.includes("service unavailable") ||
     lower.includes("overloaded") ||
-    lower.includes("model is overloaded")
+    lower.includes("fetch failed") ||
+    lower.includes("enotfound") ||
+    lower.includes("econnreset") ||
+    lower.includes("etimedout") ||
+    lower.includes("network") ||
+    lower.includes("resource has been exhausted")
   );
 }
 
 const MAX_RETRIES = 3;
-const RETRY_BASE_DELAY_MS = 800;
+const RETRY_BASE_DELAY_MS = 1000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -83,7 +92,7 @@ async function generateWithRetry(
       return await model.generateContent(parts);
     } catch (err) {
       lastErr = err;
-      if (attempt < MAX_RETRIES && isRetryable503(err)) {
+      if (attempt < MAX_RETRIES && isRetryableError(err)) {
         await sleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
         continue;
       }
@@ -252,9 +261,9 @@ export async function analyzeSkinMetrics(
       }
     } catch (err) {
       lastErr = err;
-      if (isRetryable503(err) && modelId !== modelIds[modelIds.length - 1]) {
+      if (isRetryableError(err) && modelId !== modelIds[modelIds.length - 1]) {
         console.warn(
-          `Gemini metric model ${modelId} exhausted retries with 503; falling back to next model.`
+          `Gemini metric model ${modelId} failed (${(err as Error)?.message}); falling back to next model.`
         );
         continue;
       }

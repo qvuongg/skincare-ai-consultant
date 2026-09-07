@@ -9,6 +9,7 @@ import {
   Loader2,
   MapPin,
   Sun,
+  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,8 @@ import {
   type SliderVibe,
 } from "@/components/onboarding/liquid-glass-slider";
 
+export type SunscreenFrequency = "daily" | "sometimes" | "never";
+
 export type LifestyleData = {
   location: string | null;
   uv_index: number | null;
@@ -24,6 +27,7 @@ export type LifestyleData = {
   water_liters: number;
   sleep_hours: number;
   exercise_sessions: number;
+  uses_sunscreen?: SunscreenFrequency;
 };
 
 function waterVibe(l: number): SliderVibe {
@@ -372,6 +376,69 @@ export function StepLifestyle({ value, onChange, onNext }: Props) {
             iconTint="rgba(255, 228, 230, 0.75)"
             vibe={exerciseVibe(value.exercise_sessions)}
           />
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.32, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="space-y-2.5"
+        >
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-1.5">
+              <ShieldCheck className="size-4 text-amber-500" />
+              <p className="text-[14px] font-semibold tracking-tight text-foreground">
+                Thói quen dùng kem chống nắng (SPF)
+              </p>
+            </div>
+            <span className="text-[11px] font-medium text-foreground/50">
+              Bảo vệ #1
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: "daily", label: "Hàng ngày", desc: "Mỗi sáng", emoji: "☀️" },
+              { id: "sometimes", label: "Thỉnh thoảng", desc: "Khi trời gắt", emoji: "⛅" },
+              { id: "never", label: "Chưa dùng", desc: "Hiếm khi / chưa", emoji: "⛱️" },
+            ].map((opt) => {
+              const selected = (value.uses_sunscreen ?? "daily") === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...value,
+                      uses_sunscreen: opt.id as SunscreenFrequency,
+                    })
+                  }
+                  className="relative flex flex-col items-center justify-center gap-1 rounded-2xl p-3 text-center transition-all active:scale-95"
+                  style={{
+                    background: selected
+                      ? "linear-gradient(135deg, rgba(254, 215, 170, 0.45), rgba(255, 255, 255, 0.8))"
+                      : "rgba(255, 255, 255, 0.45)",
+                    backdropFilter: "blur(20px)",
+                    WebkitBackdropFilter: "blur(20px)",
+                    border: selected
+                      ? "1.5px solid rgba(249, 115, 22, 0.65)"
+                      : "1px solid rgba(255, 255, 255, 0.55)",
+                    boxShadow: selected
+                      ? "0 8px 20px rgba(249, 115, 22, 0.15), inset 0 1px 0 rgba(255,255,255,0.9)"
+                      : "0 4px 12px rgba(31,38,135,0.04), inset 0 1px 0 rgba(255,255,255,0.6)",
+                  }}
+                >
+                  <span className="text-xl">{opt.emoji}</span>
+                  <span className="text-[13px] font-semibold text-foreground">
+                    {opt.label}
+                  </span>
+                  <span className="text-[10px] text-foreground/60">
+                    {opt.desc}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </motion.section>
       </div>
 

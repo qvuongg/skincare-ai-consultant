@@ -43,6 +43,8 @@ type Props = {
   ageRange?: AgeRangeId | null;
   workEnvironment?: EnvironmentId | null;
   diet?: DietOptionId[];
+  exerciseSessions?: number | null;
+  sunscreenUse?: "daily" | "sometimes" | "never" | null;
   previewUrl: string | null;
   onRetry: () => void;
 };
@@ -90,6 +92,8 @@ export function StepReview({
   ageRange = null,
   workEnvironment = null,
   diet = [],
+  exerciseSessions = null,
+  sunscreenUse = null,
   previewUrl,
   onRetry,
 }: Props) {
@@ -107,6 +111,8 @@ export function StepReview({
       dietLabels: getDietLabels(diet),
       waterLiters,
       sleepHours,
+      exerciseSessions,
+      sunscreenUse,
     }),
     [
       userName,
@@ -117,6 +123,8 @@ export function StepReview({
       diet,
       waterLiters,
       sleepHours,
+      exerciseSessions,
+      sunscreenUse,
     ]
   );
   const phrases = useMemo(

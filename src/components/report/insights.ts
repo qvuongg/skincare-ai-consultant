@@ -43,6 +43,8 @@ export type ReportContext = {
 
   waterLiters: number | null;
   sleepHours: number | null;
+  exerciseSessions?: number | null;
+  sunscreenUse?: "daily" | "sometimes" | "never" | null;
 };
 
 export type InsightTone = "praise" | "warning" | "neutral";
@@ -223,6 +225,42 @@ export function buildCauseEffects(
     });
   }
 
+  // ── Sleep → Cortisol & Recovery ─────────────────────────────────
+  if (ctx.sleepHours != null) {
+    const hours = ctx.sleepHours;
+    if (hours < 6) {
+      out.push({
+        text: `Ngủ ${hours}h/ngày làm tăng nồng độ cortisol, kích thích tuyến bã nhờn và làm chậm chu kỳ tái tạo da ban đêm.`,
+        tone: "warning",
+      });
+    } else if (hours >= 7) {
+      out.push({
+        text: `Giấc ngủ ${hours}h đạt chuẩn vàng, hỗ trợ hormone tăng trưởng tái cấu trúc collagen và hàng rào ẩm.`,
+        tone: "praise",
+      });
+    }
+  }
+
+  // ── Sunscreen → Photoaging ──────────────────────────────────────
+  if (ctx.sunscreenUse != null) {
+    if (ctx.sunscreenUse === "never") {
+      out.push({
+        text: "Chưa có thói quen dùng kem chống nắng khiến tia UVA/UVB thâm nhập sâu, đẩy nhanh đốm sắc tố và nếp nhăn tĩnh.",
+        tone: "warning",
+      });
+    } else if (ctx.sunscreenUse === "daily") {
+      out.push({
+        text: "Thói quen thoa kem chống nắng hàng ngày là lá chắn đắc lực bảo vệ sợi đàn hồi elastin trước ánh sáng mặt trời.",
+        tone: "praise",
+      });
+    } else if (ctx.sunscreenUse === "sometimes") {
+      out.push({
+        text: "Chỉ bôi kem chống nắng khi trời gắt là chưa đủ — tia UVA xuyên qua mây và kính, cần thoa đều đặn mỗi sáng.",
+        tone: "neutral",
+      });
+    }
+  }
+
   // ── Diet → Sebum ────────────────────────────────────────────────
   if (ctx.dietLabels.length > 0) {
     const sebum = Math.round(breakdown.sebum);
@@ -237,6 +275,22 @@ export function buildCauseEffects(
     out.push({
       text: `Chế độ ăn ${ctx.dietLabels.join(", ")} ảnh hưởng trực tiếp đến chỉ số Sebum (Dầu): ${sebum} điểm.`,
       tone,
+    });
+  }
+
+  // ── Work Environment → TEWL / Moisture Barrier ──────────────────
+  if (ctx.workEnvId === "office") {
+    out.push({
+      text: "Môi trường máy lạnh liên tục thúc đẩy tốc độ mất nước qua biểu bì (TEWL), đòi hỏi serum cấp nước và kem khóa ẩm.",
+      tone: "neutral",
+    });
+  }
+
+  // ── Exercise → Microcirculation ─────────────────────────────────
+  if (ctx.exerciseSessions != null && ctx.exerciseSessions >= 3) {
+    out.push({
+      text: `Duy trì ${ctx.exerciseSessions} buổi vận động/tuần kích hoạt vi tuần hoàn máu, giúp làn da hồng hào và thải độc qua lỗ chân lông.`,
+      tone: "praise",
     });
   }
 

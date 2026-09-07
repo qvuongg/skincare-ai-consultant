@@ -141,6 +141,7 @@ export function GoalCard({
 
         <div className="relative z-10 flex items-center gap-4">
           <motion.span
+            initial={false}
             animate={{ rotate: selected ? -6 : 0, scale: selected ? 1.05 : 1 }}
             transition={{ type: "spring", stiffness: 380, damping: 14 }}
             className="flex size-12 shrink-0 items-center justify-center rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] sm:size-14"
@@ -173,6 +174,7 @@ export function GoalCard({
 
           <motion.span
             aria-hidden
+            initial={{ scale: 1, opacity: 0.5 }}
             animate={{
               scale: selected ? 1.05 : 1,
               opacity: selected ? 1 : 0.5,

@@ -266,6 +266,13 @@ export function computeLifestyleModifiers(
       message:
         "Uống < 1.5L nước/ngày làm tăng TEWL — da dễ khô và mất nước qua biểu bì.",
     });
+  } else if (o.water_band === "2+") {
+    out.push({
+      factor: "water",
+      value: 3,
+      metric_affected: "Hydration",
+      message: "Uống 2L+ nước/ngày giúp củng cố hàng rào ẩm và độ đàn hồi tự nhiên.",
+    });
   }
 
   // ── Diet ────────────────────────────────────────────────────────────
@@ -375,6 +382,44 @@ export function capModifierTotal(mods: LifestyleModifier[]): {
 } {
   const raw = mods.reduce((acc, m) => acc + m.value, 0);
   return { raw, capped: clamp(raw, -20, 20) };
+}
+
+export type PotentialScoreResult = {
+  potentialScore: number;
+  delta: number;
+  potentialBand: ScoreBand;
+  negativeModifiers: LifestyleModifier[];
+};
+
+/**
+ * Compute motivational Potential Score (SPEC §8.4.5).
+ * Simulates the skin score if all negative lifestyle factors are corrected
+ * into optimal habits.
+ */
+export function computePotentialScore(
+  compositeScore: number,
+  currentModifiers: LifestyleModifier[]
+): PotentialScoreResult {
+  const negativeMods = currentModifiers.filter((m) => m.value < 0);
+  const positiveOnlySum = currentModifiers
+    .filter((m) => m.value > 0)
+    .reduce((acc, m) => acc + m.value, 0);
+
+  // Bonus for turning negative habits into positive/healthy habits
+  const additionalPotential = negativeMods.length * 3;
+  const potentialCappedMod = clamp(positiveOnlySum + additionalPotential, -20, 20);
+  const potentialScore = Math.round(clamp(compositeScore + potentialCappedMod, 0, 100));
+
+  const currentCapped = capModifierTotal(currentModifiers).capped;
+  const currentFinal = Math.round(clamp(compositeScore + currentCapped, 0, 100));
+  const delta = Math.max(0, potentialScore - currentFinal);
+
+  return {
+    potentialScore,
+    delta,
+    potentialBand: getScoreBand(potentialScore),
+    negativeModifiers: negativeMods,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════

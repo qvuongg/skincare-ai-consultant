@@ -40,8 +40,22 @@ export function HeroSection({ ctx, overallScore, scoreBand, skinType }: Props) {
     >
       <GlassCard
         className="px-6 pb-6 pt-5"
-        tint="color-mix(in srgb, var(--score-color) 12%, rgba(255,255,255,0.65))"
+        tint="linear-gradient(180deg, color-mix(in srgb, var(--score-color) 14%, rgba(255,255,255,0.92)) 0%, rgba(255,255,255,0.75) 100%)"
+        style={{
+          boxShadow:
+            "0 20px 48px rgba(31, 38, 135, 0.09), 0 4px 16px rgba(0, 0, 0, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.95)",
+        }}
       >
+        {/* Top reflection ray */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-8 top-0 h-px"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent)",
+          }}
+        />
+
         {/* Adaptive band-tinted halo behind the gauge. */}
         <div
           aria-hidden

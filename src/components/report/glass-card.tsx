@@ -28,12 +28,12 @@ export function GlassCard({
   ...rest
 }: Props): ReactNode {
   const surface: CSSProperties = {
-    background: tint ?? "rgba(255,255,255,0.55)",
-    backdropFilter: "blur(24px) saturate(180%)",
-    WebkitBackdropFilter: "blur(24px) saturate(180%)",
-    border: "1px solid rgba(255,255,255,0.40)",
+    background: tint ?? "rgba(255, 255, 255, 0.72)",
+    backdropFilter: "blur(28px) saturate(190%)",
+    WebkitBackdropFilter: "blur(28px) saturate(190%)",
+    border: "1px solid rgba(255, 255, 255, 0.75)",
     boxShadow:
-      "0 14px 40px rgba(31,38,135,0.12), inset 0 1px 0 rgba(255,255,255,0.50)",
+      "0 16px 36px rgba(31, 38, 135, 0.07), 0 2px 8px rgba(0, 0, 0, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.9)",
     ...style,
   };
   return (

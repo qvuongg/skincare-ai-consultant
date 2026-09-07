@@ -567,6 +567,7 @@ export function StepPhotoScan({ onCapture }: Props) {
                 {/* stays glued behind the white tick. */}
                 <motion.div
                   className="absolute inset-0 rounded-full"
+                  initial={{ opacity: 0 }}
                   animate={{ opacity: poseLocked ? 1 : 0 }}
                   transition={{ duration: 0.45, ease: "easeOut" }}
                   style={{
@@ -851,7 +852,7 @@ function FaceIDRing({
       className="absolute inset-0 size-full"
       aria-hidden
     >
-      <motion.g animate={pulseAnim} transition={pulseTransition}>
+      <motion.g initial={false} animate={pulseAnim} transition={pulseTransition}>
         {segments.map((seg, i) => {
           let stroke = COLOR_GRAY;
 

@@ -187,6 +187,11 @@ export default async function ReportDetailPage({ params }: PageProps) {
         ? lead.location
         : null;
 
+  const habits =
+    lead?.habits && typeof lead.habits === "object"
+      ? (lead.habits as Record<string, unknown>)
+      : {};
+
   const reportCtx: ReportContext = {
     userName,
     goalLabel,
@@ -197,8 +202,30 @@ export default async function ReportDetailPage({ params }: PageProps) {
     workEnvLabel: getEnvironmentLabel(workEnvironment),
     dietIds: diet,
     dietLabels: getDietLabels(diet),
-    waterLiters: typeof lifestyle?.water_liters === "number" ? lifestyle.water_liters : null,
-    sleepHours: typeof lifestyle?.sleep_hours === "number" ? lifestyle.sleep_hours : null,
+    waterLiters:
+      typeof lifestyle?.water_liters === "number"
+        ? lifestyle.water_liters
+        : typeof habits?.water_liters === "number"
+          ? habits.water_liters
+          : null,
+    sleepHours:
+      typeof lifestyle?.sleep_hours === "number"
+        ? lifestyle.sleep_hours
+        : typeof habits?.sleep_hours === "number"
+          ? habits.sleep_hours
+          : null,
+    exerciseSessions:
+      typeof lifestyle?.exercise_sessions === "number"
+        ? lifestyle.exercise_sessions
+        : typeof habits?.exercise_sessions === "number"
+          ? habits.exercise_sessions
+          : null,
+    sunscreenUse:
+      (typeof lifestyle?.uses_sunscreen === "string"
+        ? (lifestyle.uses_sunscreen as "daily" | "sometimes" | "never")
+        : typeof habits?.uses_sunscreen === "string"
+          ? (habits.uses_sunscreen as "daily" | "sometimes" | "never")
+          : null),
   };
 
   // 4. Resolve products & routine

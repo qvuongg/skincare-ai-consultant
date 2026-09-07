@@ -45,6 +45,14 @@ export function MetricCard({
 }: Props) {
   const rounded = Math.round(score);
   const band = getScoreBand(rounded);
+  const isConcern = rounded < 60;
+  const isGreat = rounded >= 80;
+
+  const cardTint = isConcern
+    ? "color-mix(in srgb, #F43F5E 7%, rgba(255, 255, 255, 0.75))"
+    : isGreat
+      ? "color-mix(in srgb, #10B981 7%, rgba(255, 255, 255, 0.75))"
+      : undefined;
 
   return (
     <motion.div
@@ -52,7 +60,7 @@ export function MetricCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...REPORT_SPRING, delay: 0.08 + index * 0.04 }}
     >
-      <GlassCard className="p-4">
+      <GlassCard className="p-4" tint={cardTint}>
         <div className="flex items-start justify-between gap-2">
           <span
             className="flex size-9 items-center justify-center rounded-2xl"

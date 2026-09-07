@@ -200,30 +200,39 @@ function buildScoringOnboarding(raw: unknown): ScoringOnboarding {
   if (typeof raw !== "object" || raw === null) return {};
   const r = raw as Record<string, unknown>;
 
-  const ageRaw = asString(r.age_group) ?? asString(r.age_range);
+  const lifestyle = (r.lifestyle as Record<string, unknown>) ?? {};
+  const habits = (r.habits as Record<string, unknown>) ?? {};
+
+  const ageRaw =
+    asString(r.age_group) ??
+    asString(r.age_range) ??
+    asString(habits.age_range);
   const age_group = ageRaw ? (AGE_RANGE_MAP[ageRaw] ?? null) : null;
 
   // sleep / water / exercise: check both the canonical SPEC bands AND the
   // legacy FormData numeric shapes (lifestyle.sleep_hours, etc.).
-  const lifestyle = (r.lifestyle as Record<string, unknown>) ?? {};
   const sleep_band_str = asString(r.sleep_hours)?.replace(/\s+/g, "");
   const sleep_band =
     (sleep_band_str as SleepBand | null) ??
-    sleepBandFromHours(lifestyle.sleep_hours);
+    sleepBandFromHours(r.sleep_hours ?? lifestyle.sleep_hours ?? habits.sleep_hours);
   const water_band_str = asString(r.water_intake_l)?.replace(/\s+/g, "");
   const water_band =
     (water_band_str as WaterBand | null) ??
-    waterBandFromLiters(lifestyle.water_liters);
+    waterBandFromLiters(r.water_liters ?? lifestyle.water_liters ?? habits.water_liters);
   const exercise_per_week =
     (asString(r.exercise_per_week) as ExerciseBand | null) ??
-    exerciseBandFromSessions(lifestyle.exercise_sessions);
+    exerciseBandFromSessions(r.exercise_sessions ?? lifestyle.exercise_sessions ?? habits.exercise_sessions);
 
-  const dietRaw = Array.isArray(r.diet) ? r.diet : [];
+  const dietRaw = Array.isArray(r.diet)
+    ? r.diet
+    : Array.isArray(habits.diet)
+      ? habits.diet
+      : [];
   const diet = dietRaw
     .filter((d): d is string => typeof d === "string")
     .filter((d): d is DietTag => DIET_VALUES.has(d as DietTag));
 
-  const stressRaw = r.stress_level;
+  const stressRaw = r.stress_level ?? habits.stress_level;
   const stress_level =
     typeof stressRaw === "number" &&
     stressRaw >= 1 &&
@@ -232,19 +241,25 @@ function buildScoringOnboarding(raw: unknown): ScoringOnboarding {
       ? (stressRaw as 1 | 2 | 3 | 4 | 5)
       : null;
 
-  const sunscreenRaw = asString(r.uses_sunscreen);
+  const sunscreenRaw =
+    asString(r.uses_sunscreen) ??
+    asString(lifestyle.uses_sunscreen) ??
+    asString(habits.uses_sunscreen);
   const uses_sunscreen =
     sunscreenRaw && SUNSCREEN_VALUES.has(sunscreenRaw as SunscreenUse)
       ? (sunscreenRaw as SunscreenUse)
       : null;
 
-  const smokesRaw = asString(r.smokes);
+  const smokesRaw = asString(r.smokes) ?? asString(habits.smokes);
   const smokes =
     smokesRaw && SMOKING_VALUES.has(smokesRaw as SmokingHabit)
       ? (smokesRaw as SmokingHabit)
       : null;
 
-  const envRaw = asString(r.work_environment) ?? asString(r.environment);
+  const envRaw =
+    asString(r.work_environment) ??
+    asString(r.environment) ??
+    asString(habits.environment);
   const work_environment = envRaw ? (ENV_MAP[envRaw] ?? null) : null;
 
   return {

@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useLowPower } from "@/lib/hooks/use-low-power";
 
 const BASE_GRADIENT =
-  "linear-gradient(180deg, #fbf7ff 0%, #f3f7ff 60%, #f0fbf6 100%)";
+  "linear-gradient(180deg, #FFFDFB 0%, #FFF5ED 30%, #FAF5FF 65%, #F0FDF4 100%)";
 
 // Force a compositor layer + hardware acceleration on every animated blob.
 // `transform: translateZ(0)` promotes to its own GPU layer, `willChange`
@@ -38,21 +38,21 @@ export function MeshGradient() {
       style={{ background: BASE_GRADIENT }}
     >
       <motion.div
-        className="absolute -left-[10%] -top-[15%] h-[55vmax] w-[55vmax] rounded-full blur-2xl"
+        className="absolute -left-[10%] -top-[15%] h-[55vmax] w-[55vmax] rounded-full blur-3xl"
         style={{
           ...GPU_HINT,
           background:
-            "radial-gradient(circle at 30% 30%, rgba(255, 182, 193, 0.78), rgba(255,182,193,0) 60%)",
+            "radial-gradient(circle at 30% 30%, rgba(254, 205, 211, 0.85), rgba(254,205,211,0) 65%)",
         }}
         animate={{ x: ["-4%", "8%", "-4%"], y: ["-3%", "6%", "-3%"] }}
         transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
       />
       <motion.div
-        className="absolute -right-[15%] top-[5%] h-[55vmax] w-[55vmax] rounded-full blur-2xl"
+        className="absolute -right-[15%] top-[5%] h-[55vmax] w-[55vmax] rounded-full blur-3xl"
         style={{
           ...GPU_HINT,
           background:
-            "radial-gradient(circle at 60% 40%, rgba(173, 216, 230, 0.88), rgba(173,216,230,0) 60%)",
+            "radial-gradient(circle at 60% 40%, rgba(233, 213, 255, 0.85), rgba(233,213,255,0) 65%)",
         }}
         animate={{ x: ["3%", "-7%", "3%"], y: ["4%", "-4%", "4%"] }}
         transition={{ duration: 32, repeat: Infinity, ease: "easeInOut" }}

@@ -133,6 +133,7 @@ export function LiquidGlassSlider({
             background: `radial-gradient(120% 90% at 50% 50%, ${fillTo} 0%, transparent 70%)`,
             mixBlendMode: "screen",
           }}
+          initial={{ opacity: 0 }}
           animate={{
             width: `${Math.min(100, pct + 8)}%`,
             opacity: haloOpacity,

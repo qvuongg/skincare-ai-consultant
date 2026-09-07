@@ -74,6 +74,7 @@ const INITIAL: FormData = {
     water_liters: 1.5,
     sleep_hours: 7,
     exercise_sessions: 3,
+    uses_sunscreen: "daily",
   },
 };
 
@@ -155,6 +156,7 @@ export default function OnboardingPage() {
         water_liters: d.lifestyle.water_liters,
         sleep_hours: d.lifestyle.sleep_hours,
         exercise_sessions: d.lifestyle.exercise_sessions,
+        uses_sunscreen: d.lifestyle.uses_sunscreen ?? "daily",
         diet: d.diet,
         environment: d.environment,
         environment_other: d.environment_other,
@@ -202,7 +204,10 @@ export default function OnboardingPage() {
           primary_goal: joinGoalLabels(snapshot.primary_goals) || null,
           primary_goals: snapshot.primary_goals,
           skin_type_self_reported: snapshot.skin_type,
+          age_range: snapshot.age_range,
+          uses_sunscreen: snapshot.lifestyle.uses_sunscreen ?? "daily",
           location: snapshot.lifestyle.location,
+          lifestyle: snapshot.lifestyle,
           weather_context:
             snapshot.lifestyle.uv_index !== null
               ? {
@@ -218,6 +223,7 @@ export default function OnboardingPage() {
             water_liters: snapshot.lifestyle.water_liters,
             sleep_hours: snapshot.lifestyle.sleep_hours,
             exercise_sessions: snapshot.lifestyle.exercise_sessions,
+            uses_sunscreen: snapshot.lifestyle.uses_sunscreen ?? "daily",
             diet: snapshot.diet,
             environment: snapshot.environment,
             environment_other: snapshot.environment_other,
@@ -458,6 +464,8 @@ export default function OnboardingPage() {
                   ageRange={data.age_range}
                   workEnvironment={data.environment}
                   diet={data.diet}
+                  exerciseSessions={data.lifestyle.exercise_sessions}
+                  sunscreenUse={data.lifestyle.uses_sunscreen}
                   previewUrl={previewUrl}
                   onRetry={restartScan}
                 />
