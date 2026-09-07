@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { DOTS, FACE_OUTLINE, MESH_LINES } from "./face-mesh-data";
 import { GLASS, GLASS_LIGHT, GPU, fadeUp, stagger } from "./landing-tokens";
 
 type Metric = {
@@ -275,20 +276,45 @@ function FaceHeatmap({ metrics }: { metrics: Metric[] }) {
               <stop offset="0%" stopColor="#cbd5e1" stopOpacity="0.6" />
               <stop offset="100%" stopColor="#94a3b8" stopOpacity="0.6" />
             </linearGradient>
+            <linearGradient id="mesh-line-light" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="rgba(148,163,184,0.5)" />
+              <stop offset="100%" stopColor="rgba(148,163,184,0.2)" />
+            </linearGradient>
           </defs>
 
           {/* Soft face silhouette */}
           <path
-            d="M240 80 C160 80, 100 170, 100 320 C100 460, 180 540, 240 545 C300 540, 380 460, 380 320 C380 170, 320 80, 240 80 Z"
-            fill="rgba(255,255,255,0.6)"
+            d={FACE_OUTLINE}
+            fill="rgba(255,255,255,0.5)"
             stroke="url(#heatmap-face)"
             strokeWidth="1.5"
           />
-          {/* Suggestive feature outlines */}
-          <ellipse cx="195" cy="220" rx="22" ry="10" fill="none" stroke="rgba(148,163,184,0.45)" strokeWidth="1.2" />
-          <ellipse cx="285" cy="220" rx="22" ry="10" fill="none" stroke="rgba(148,163,184,0.45)" strokeWidth="1.2" />
-          <path d="M225 270 Q240 305 240 335 Q240 355 220 358 M255 270 Q240 305 240 335 Q240 355 260 358" fill="none" stroke="rgba(148,163,184,0.40)" strokeWidth="1.2" strokeLinecap="round" />
-          <path d="M205 405 Q240 425 275 405" fill="none" stroke="rgba(148,163,184,0.45)" strokeWidth="1.5" strokeLinecap="round" />
+
+          {/* High-tech Face Mesh */}
+          <g>
+            {MESH_LINES.map(([[x1, y1], [x2, y2]], idx) => (
+              <line
+                key={`line-${idx}`}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="url(#mesh-line-light)"
+                strokeWidth="1"
+              />
+            ))}
+          </g>
+          <g>
+            {DOTS.map(([x, y], idx) => (
+              <circle
+                key={`dot-${idx}`}
+                cx={x}
+                cy={y}
+                r="1.5"
+                fill="rgba(148,163,184,0.6)"
+              />
+            ))}
+          </g>
 
           {/* Metric hotspots */}
           {metrics.map((m, idx) => (

@@ -220,6 +220,14 @@ export function FaceScanVisualizer({ reduced }: { reduced: boolean }) {
             "0 60px 120px rgba(15,23,42,0.35), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 0 0 1px rgba(255,255,255,0.06)",
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/1.png"
+          alt="AI face scan target"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          style={{ transform: "scale(1.28) translateY(5%)", objectPosition: "center" }}
+        />
+
         {/* Background blobs — give the dark surface depth */}
         <div
           aria-hidden
@@ -262,8 +270,8 @@ export function FaceScanVisualizer({ reduced }: { reduced: boolean }) {
               <stop offset="100%" stopColor="#34d399" />
             </linearGradient>
             <linearGradient id="mesh-line" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="rgba(167,139,250,0.45)" />
-              <stop offset="100%" stopColor="rgba(96,165,250,0.45)" />
+              <stop offset="0%" stopColor="rgba(167,139,250,0.85)" />
+              <stop offset="100%" stopColor="rgba(96,165,250,0.85)" />
             </linearGradient>
             <radialGradient id="dot-fill">
               <stop offset="0%" stopColor="rgba(255,255,255,1)" />
@@ -277,10 +285,10 @@ export function FaceScanVisualizer({ reduced }: { reduced: boolean }) {
             d={FACE_OUTLINE}
             fill="none"
             stroke="url(#face-stroke)"
-            strokeWidth="1.5"
+            strokeWidth="2"
             strokeLinecap="round"
             initial={{ pathLength: 0, opacity: 0 }}
-            animate={{ pathLength: 1, opacity: 0.75 }}
+            animate={{ pathLength: 1, opacity: 0.95 }}
             transition={{
               duration: 1.4,
               ease: [0.22, 1, 0.36, 1],
@@ -297,9 +305,9 @@ export function FaceScanVisualizer({ reduced }: { reduced: boolean }) {
                 x2={x2}
                 y2={y2}
                 stroke="url(#mesh-line)"
-                strokeWidth="0.8"
+                strokeWidth="1.2"
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 0.55 }}
+                animate={{ opacity: 0.9 }}
                 transition={{
                   duration: 0.6,
                   delay: lineDelay + idx * 0.015,
@@ -316,7 +324,7 @@ export function FaceScanVisualizer({ reduced }: { reduced: boolean }) {
                 key={`dot-${idx}`}
                 cx={x}
                 cy={y}
-                r="2.4"
+                r="3"
                 fill="url(#dot-fill)"
                 initial={{ opacity: 0, scale: 0 }}
                 animate={{ opacity: 1, scale: 1 }}
