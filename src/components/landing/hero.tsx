@@ -26,7 +26,7 @@ export function Hero({
   reduced: boolean;
 }) {
   return (
-    <section className="relative px-6 pt-12 pb-16 lg:pt-20 lg:pb-28">
+    <section className="relative px-4 pt-10 pb-14 sm:px-6 lg:pt-20 lg:pb-28">
       <div className="mx-auto max-w-7xl">
         <div className="grid grid-cols-1 items-center gap-14 lg:grid-cols-[1.05fr_1fr] lg:gap-20">
           <motion.div
@@ -60,7 +60,7 @@ export function Hero({
             >
               <span
                 style={{
-                  background:
+                  backgroundImage:
                     "linear-gradient(180deg, #1f2937 0%, #4b5563 50%, #111827 100%)",
                   WebkitBackgroundClip: "text",
                   backgroundClip: "text",
@@ -71,7 +71,7 @@ export function Hero({
               </span>
               <span
                 style={{
-                  background:
+                  backgroundImage:
                     "linear-gradient(90deg, #a855f7 0%, #3b82f6 50%, #22c55e 100%)",
                   WebkitBackgroundClip: "text",
                   backgroundClip: "text",

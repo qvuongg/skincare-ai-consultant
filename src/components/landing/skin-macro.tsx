@@ -1,22 +1,17 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Droplet, Droplets, CircleDot, Palette, Sparkles, Zap } from "lucide-react";
 
 import { GLASS, GLASS_LIGHT, GPU, fadeUp, stagger } from "./landing-tokens";
-
-// "What AI sees" section — gives the page a tactile, photographic-feeling
-// moment without requiring real macro photos. Each card is a CSS-only
-// composite of layered radial gradients that imitate skin under macro
-// lens (dry crack lines, oil sheen, inflamed bumps, pigmentation patches).
-//
-// `imageSrc` is a slot — when a real macro photo arrives later, drop it
-// into the corresponding card and it overlays/replaces the CSS texture.
 
 type Macro = {
   id: string;
   label: string;
   metric: string;
   body: string;
+  insight: string;
   background: string;
   hotspots?: Array<{ x: string; y: string; color: string; size: number }>;
   imageSrc?: string;
@@ -28,6 +23,7 @@ const MACROS: Macro[] = [
     label: "Da khô",
     metric: "Độ ẩm 32",
     body: "Bề mặt mất nước, viền tế bào sừng bong nhẹ. AI thấy được các vi nứt mà gương soi bỏ qua.",
+    insight: "Phát hiện mạng lưới rãnh nứt tế bào tầng sừng do thiếu NMF. Cần cấp ẩm HA đa tầng và khóa màng bằng Ceramide.",
     background: [
       "radial-gradient(circle at 25% 30%, rgba(180,140,100,0.35), transparent 35%)",
       "radial-gradient(circle at 70% 55%, rgba(160,120,90,0.30), transparent 40%)",
@@ -46,6 +42,7 @@ const MACROS: Macro[] = [
     label: "Da dầu",
     metric: "Bã nhờn 78",
     body: "Bề mặt sáng bóng do tuyến nhờn hoạt động mạnh. Phản chiếu ánh sáng theo từng vùng chữ T.",
+    insight: "Khúc xạ ánh sáng biểu bì ghi nhận dầu thừa tích tụ tại nang lông. Cần Niacinamide 5% điều tiết lipid tự nhiên.",
     background: [
       "radial-gradient(circle at 35% 40%, rgba(255,255,255,0.55), transparent 25%)",
       "radial-gradient(circle at 65% 35%, rgba(255,255,255,0.45), transparent 25%)",
@@ -64,6 +61,7 @@ const MACROS: Macro[] = [
     label: "Da mụn",
     metric: "Mụn viêm 64",
     body: "Các điểm viêm đỏ rải rác kèm vùng quanh sưng nhẹ. AI đếm và phân loại theo độ nặng.",
+    insight: "Phát hiện 64 ổ phản ứng viêm xung quanh nang lông do vi khuẩn P.acnes. Cần Salicylic 1% kháng viêm dịu nhẹ.",
     background: [
       "radial-gradient(circle at 30% 35%, rgba(190,18,60,0.55), transparent 8%)",
       "radial-gradient(circle at 55% 55%, rgba(220,38,38,0.60), transparent 7%)",
@@ -86,6 +84,7 @@ const MACROS: Macro[] = [
     label: "Sắc tố",
     metric: "Pigmentation 71",
     body: "Đám tăng sắc tố melanin không đều — thâm sau mụn, nám, đốm nâu. AI phân biệt từng loại.",
+    insight: "Mật độ hắc sắc tố Melanin phân bổ không đồng nhất dưới lớp đáy. Cần bảo vệ quang học và Tranexamic Acid làm đều màu.",
     background: [
       "radial-gradient(ellipse at 25% 35%, rgba(120,53,15,0.50), transparent 18%)",
       "radial-gradient(ellipse at 65% 30%, rgba(146,64,14,0.45), transparent 20%)",
@@ -104,52 +103,111 @@ const MACROS: Macro[] = [
 ];
 
 export function SkinMacro() {
+  const [selectedId, setSelectedId] = useState<string>("acne");
+  const selectedMacro = MACROS.find((m) => m.id === selectedId) || MACROS[0];
+
   return (
-    <section className="px-6 py-20 lg:py-28">
+    <section className="px-4 py-12 sm:px-6 sm:py-16 lg:py-24">
       <motion.div
         variants={stagger}
         initial="hidden"
         whileInView="show"
-        viewport={{ once: true, margin: "-80px" }}
-        className="mx-auto max-w-7xl"
+        viewport={{ once: true, margin: "-60px" }}
+        className="mx-auto max-w-6xl"
       >
-        <motion.div variants={fadeUp} className="mb-12 text-center">
+        {/* Section Header */}
+        <motion.div variants={fadeUp} className="mb-6 sm:mb-10 text-center">
           <span
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/65"
+            className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/70"
             style={GLASS_LIGHT}
           >
-            <span className="size-1.5 rounded-full bg-rose-500" />
-            Tầm nhìn vi mô
+            <span className="size-1.5 rounded-full bg-rose-500 animate-pulse" />
+            Tầm nhìn vi mô · Ống kính hiển vi AI
           </span>
-          <h2 className="mt-4 text-balance text-[30px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px] lg:text-[48px]">
+          <h2 className="mt-3 text-balance text-[28px] font-bold leading-tight tracking-tight text-foreground sm:text-[40px] lg:text-[44px]">
             Đây là cái AI đang thấy. Còn mắt thường thì chưa.
           </h2>
-          <p className="mx-auto mt-4 max-w-[60ch] text-pretty text-[15px] leading-relaxed text-foreground/65 sm:text-[16px]">
-            Camera điện thoại của bạn đủ phân giải để Mika đọc được hoa văn da
-            ở mức cận cảnh. Sau đó là chuyện của AI — phân loại, định lượng,
-            báo cáo.
+          <p className="mx-auto mt-2 max-w-[60ch] text-pretty text-[14px] leading-relaxed text-foreground/65 sm:text-[15.5px]">
+            Chạm vào từng mẫu mô da để quan sát cấu trúc biểu bì dưới ống kính
+            quang học AI và đọc tín hiệu chẩn đoán tế bào.
           </p>
         </motion.div>
 
+        {/* Interactive 4 Macro Cards */}
         <motion.div
           variants={fadeUp}
-          className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+          className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
         >
           {MACROS.map((m) => (
-            <MacroCard key={m.id} macro={m} />
+            <MacroCard
+              key={m.id}
+              macro={m}
+              isSelected={m.id === selectedId}
+              onSelect={() => setSelectedId(m.id)}
+            />
           ))}
         </motion.div>
+
+        {/* Live Macro Inspector Insight Banner */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={selectedMacro.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22 }}
+            className="mt-4 rounded-2xl p-3.5 sm:p-4 shadow-sm border"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(254,243,199,0.5) 100%)",
+              border: "1px solid rgba(245,158,11,0.3)",
+              boxShadow: "0 8px 24px rgba(245,158,11,0.08)",
+            }}
+          >
+            <div className="flex items-start gap-2.5">
+              <span className="flex size-6.5 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-700 mt-0.5">
+                <Zap className="size-3.5" />
+              </span>
+              <div>
+                <p className="text-[10.5px] font-black uppercase tracking-wider text-amber-800">
+                  Phân tích quang học vi mô — {selectedMacro.label} ({selectedMacro.metric}):
+                </p>
+                <p className="mt-0.5 text-[12px] sm:text-[13px] leading-relaxed text-foreground/80">
+                  {selectedMacro.insight}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
       </motion.div>
     </section>
   );
 }
 
-function MacroCard({ macro }: { macro: Macro }) {
+function MacroCard({
+  macro,
+  isSelected,
+  onSelect,
+}: {
+  macro: Macro;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <motion.article
       variants={fadeUp}
-      className="relative overflow-hidden rounded-2xl p-3"
-      style={{ ...GLASS, ...GPU }}
+      onClick={onSelect}
+      className="relative cursor-pointer overflow-hidden rounded-2xl p-2.5 sm:p-3 transition-all active:scale-98 select-none"
+      style={{
+        ...GLASS,
+        ...GPU,
+        border: isSelected
+          ? "1.5px solid rgba(245,158,11,0.8)"
+          : "1px solid rgba(255,255,255,0.75)",
+        boxShadow: isSelected
+          ? "0 8px 24px rgba(245,158,11,0.18), inset 0 1px 0 rgba(255,255,255,0.95)"
+          : "0 4px 16px rgba(31,38,135,0.05)",
+      }}
     >
       {/* Macro texture preview */}
       <div
@@ -201,11 +259,13 @@ function MacroCard({ macro }: { macro: Macro }) {
 
         {/* AI metric badge */}
         <div
-          className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-mono font-semibold uppercase tracking-wider text-white"
+          className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] sm:text-[9.5px] font-mono font-bold uppercase tracking-wider text-white select-none"
           style={{
-            background: "rgba(15,23,42,0.75)",
+            background: isSelected
+              ? "rgba(217,119,6,0.9)"
+              : "rgba(15,23,42,0.75)",
             backdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.15)",
+            border: "1px solid rgba(255,255,255,0.2)",
           }}
         >
           <span className="size-1 rounded-full bg-emerald-400" />
@@ -214,11 +274,16 @@ function MacroCard({ macro }: { macro: Macro }) {
       </div>
 
       {/* Caption */}
-      <div className="px-1 pb-1 pt-3.5">
-        <h3 className="text-[14.5px] font-semibold tracking-tight text-foreground">
-          {macro.label}
-        </h3>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-foreground/60">
+      <div className="px-1 pb-0.5 pt-2.5 sm:pt-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[13.5px] sm:text-[14px] font-bold tracking-tight text-foreground">
+            {macro.label}
+          </h3>
+          {isSelected && (
+            <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+          )}
+        </div>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-foreground/60 line-clamp-2">
           {macro.body}
         </p>
       </div>
@@ -226,8 +291,6 @@ function MacroCard({ macro }: { macro: Macro }) {
   );
 }
 
-// Corner brackets + center cross — "viewfinder" feel without overlaying the
-// content too heavily. Drawn in SVG so it scales crisp at any size.
 function CrosshairFrame() {
   return (
     <svg
@@ -236,7 +299,6 @@ function CrosshairFrame() {
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
     >
-      {/* Corner ticks */}
       {[
         [4, 4, 4, 12],
         [4, 4, 12, 4],
@@ -258,7 +320,6 @@ function CrosshairFrame() {
           vectorEffect="non-scaling-stroke"
         />
       ))}
-      {/* Center crosshair */}
       <line
         x1="48"
         y1="50"

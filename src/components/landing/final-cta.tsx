@@ -23,7 +23,7 @@ export function FinalCta({
   reduced: boolean;
 }) {
   return (
-    <section className="px-6 pb-24 lg:pb-32">
+    <section className="px-4 pb-16 sm:px-6 sm:pb-24 lg:pb-32">
       <motion.div
         initial={{ opacity: 0, y: 60 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -33,7 +33,7 @@ export function FinalCta({
         style={GPU}
       >
         <div
-          className="relative overflow-hidden rounded-[2.5rem] p-10 text-center sm:p-14 lg:p-20"
+          className="relative overflow-hidden rounded-[2rem] p-6 text-center sm:rounded-[2.5rem] sm:p-14 lg:p-20"
           style={{
             background: "rgba(255,255,255,0.42)",
             backdropFilter: "blur(40px) saturate(180%)",
@@ -62,9 +62,9 @@ export function FinalCta({
             </span>
 
             <h2
-              className="mt-5 text-balance text-[36px] font-semibold leading-[1.05] tracking-tight sm:text-[52px] lg:text-[64px]"
+              className="mt-4 text-balance text-[28px] font-semibold leading-[1.08] tracking-tight sm:mt-5 sm:text-[50px] lg:text-[64px]"
               style={{
-                background:
+                backgroundImage:
                   "linear-gradient(180deg, #1f2937 0%, #4b5563 50%, #111827 100%)",
                 WebkitBackgroundClip: "text",
                 backgroundClip: "text",
@@ -75,19 +75,19 @@ export function FinalCta({
               Mika đã sẵn sàng. Còn bạn?
             </h2>
 
-            <p className="mx-auto mt-6 max-w-[58ch] text-pretty text-[15.5px] leading-relaxed text-foreground/70 sm:text-[17px]">
+            <p className="mx-auto mt-4 max-w-[58ch] text-pretty text-[14px] leading-relaxed text-foreground/70 sm:mt-6 sm:text-[17px]">
               Mọi giải pháp sản phẩm đều được tối ưu hóa theo đúng hạn mức
               ngân sách cá nhân của bạn. Tuyệt đối không chèo kéo mỹ phẩm
               thừa, không upsell thẩm mỹ — Mika chỉ nói thật.
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2 sm:mt-8 sm:gap-2.5">
               <AssuranceChip icon={Wallet} text="Đúng ngân sách" />
               <AssuranceChip icon={ShieldCheck} text="Không upsell" />
               <AssuranceChip icon={Brain} text="AI khách quan" />
             </div>
 
-            <div className="mt-10 flex justify-center">
+            <div className="mt-8 flex justify-center sm:mt-10">
               <IrisCta
                 label="Quét mặt & Nhận Routine miễn phí"
                 onClick={onCta}
@@ -95,7 +95,7 @@ export function FinalCta({
               />
             </div>
 
-            <p className="mt-5 text-[12px] font-medium text-foreground/50">
+            <p className="mt-4 text-[12px] font-medium text-foreground/50 sm:mt-5">
               Miễn phí · Dưới 60 giây · Không cần cài app
             </p>
           </div>

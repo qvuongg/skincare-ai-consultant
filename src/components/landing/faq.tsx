@@ -9,40 +9,60 @@ import { GLASS, GLASS_LIGHT, GPU, SPRING, fadeUp, stagger } from "./landing-toke
 type FaqItem = {
   q: string;
   a: string;
+  category: "privacy" | "accuracy" | "routine";
 };
+
+const FAQ_CATEGORIES = [
+  { id: "all", label: "Tất cả" },
+  { id: "privacy", label: "🔒 Bảo mật & Ảnh" },
+  { id: "accuracy", label: "🧬 Độ chuẩn xác AI" },
+  { id: "routine", label: "🧴 Routine & Chi phí" },
+] as const;
 
 const FAQS: FaqItem[] = [
   {
     q: "Mika có lưu ảnh khuôn mặt của tôi không?",
     a: "Không. Ảnh chỉ tồn tại trong phiên xử lý ngay tại thời điểm bạn quét — phân tích xong là Mika dọn sạch. Báo cáo chỉ lưu các con số chỉ số, không lưu hình.",
+    category: "privacy",
   },
   {
     q: "AI có chính xác không? Có thay được bác sĩ da liễu không?",
     a: "Mika đo lường khách quan các đặc điểm bề mặt da với độ chính xác cao, nhưng KHÔNG phải bác sĩ. Nếu bạn có vấn đề da nghiêm trọng (mụn viêm nặng, viêm da, dị ứng) — hãy đi khám. Mika tốt nhất ở vai trò: gợi ý routine hằng ngày + theo dõi tiến trình.",
+    category: "accuracy",
   },
   {
     q: "Tôi chưa có routine nào, bắt đầu được không?",
     a: "Được. Đa số người dùng Mika bắt đầu từ con số 0 — bạn chỉ cần điền độ tuổi, ngân sách và môi trường sống. Mika sẽ đề xuất 3–5 sản phẩm cốt lõi đúng cho da bạn, không bắt mua hết.",
+    category: "routine",
   },
   {
     q: "Dưới 18 tuổi có dùng được không?",
     a: "Nếu bạn 13–17 tuổi, hãy hỏi ý kiến phụ huynh trước. Mika có chế độ thiếu niên với các đề xuất nhẹ hơn (sữa rửa mặt + dưỡng ẩm + SPF), tránh hoạt chất mạnh như AHA/BHA nồng độ cao hay retinol.",
+    category: "routine",
   },
   {
     q: "Có cần mua sản phẩm của Mika không?",
     a: "Không có. Mika không sản xuất mỹ phẩm. Mọi đề xuất là sản phẩm có sẵn trên thị trường, kèm link tham khảo. Mika không nhận hoa hồng theo cách lừa bạn — bạn được biết rõ link nào có affiliate, link nào không.",
+    category: "privacy",
   },
   {
     q: "Nên quét lại bao lâu một lần?",
     a: "Khuyến nghị 2–4 tuần / lần. Đủ thời gian cho hoạt chất phát huy mà chưa quá dài để bạn quên context cũ. Mika tự overlay tiến trình giữa hai lần quét để bạn thấy rõ chỉ số nào đang cải thiện.",
+    category: "accuracy",
   },
 ];
 
 export function Faq() {
   const [openId, setOpenId] = useState<number | null>(0);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+
+  const filteredFaqs =
+    selectedCategory === "all"
+      ? FAQS
+      : FAQS.filter((f) => f.category === selectedCategory);
 
   return (
-    <section className="px-6 py-20 lg:py-28">
+    <section className="px-4 py-12 sm:px-6 sm:py-16 lg:py-24">
       <WarmPanel>
         <motion.div
           variants={stagger}
@@ -51,7 +71,7 @@ export function Faq() {
           viewport={{ once: true, margin: "-80px" }}
           className="relative mx-auto max-w-3xl"
         >
-          <motion.div variants={fadeUp} className="mb-10 text-center">
+          <motion.div variants={fadeUp} className="mb-8 text-center sm:mb-10">
             <span
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/65"
               style={GLASS_LIGHT}
@@ -59,19 +79,48 @@ export function Faq() {
               <span className="size-1.5 rounded-full bg-orange-500" />
               Trả lời thẳng
             </span>
-            <h2 className="mt-4 text-balance text-[30px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px]">
+            <h2 className="mt-4 text-balance text-[28px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px]">
               Câu hỏi thường gặp.
             </h2>
-            <p className="mx-auto mt-4 max-w-[52ch] text-pretty text-[15px] leading-relaxed text-foreground/65 sm:text-[16px]">
+            <p className="mx-auto mt-3 max-w-[52ch] text-pretty text-[14px] leading-relaxed text-foreground/65 sm:mt-4 sm:text-[16px]">
               Vẫn còn thắc mắc? Nhắn cho team Mika qua trang Hỗ trợ — thường
               được trả lời trong 24h.
             </p>
+
+            {/* Category Switcher Tabs */}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {FAQ_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory(cat.id);
+                    setOpenId(0);
+                  }}
+                  className="rounded-full px-3 py-1 text-[11px] font-semibold transition-all sm:text-[12px]"
+                  style={{
+                    background:
+                      selectedCategory === cat.id
+                        ? "rgba(234,88,12,0.15)"
+                        : "rgba(255,255,255,0.7)",
+                    border:
+                      selectedCategory === cat.id
+                        ? "1px solid rgba(234,88,12,0.3)"
+                        : "1px solid rgba(255,255,255,0.8)",
+                    color:
+                      selectedCategory === cat.id ? "#c2410c" : "rgba(0,0,0,0.6)",
+                  }}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
           </motion.div>
 
-          <motion.ul variants={fadeUp} className="space-y-3">
-            {FAQS.map((item, idx) => (
+          <motion.ul variants={fadeUp} className="space-y-2.5 sm:space-y-3">
+            {filteredFaqs.map((item, idx) => (
               <FaqRow
-                key={idx}
+                key={item.q}
                 item={item}
                 open={openId === idx}
                 onToggle={() => setOpenId(openId === idx ? null : idx)}
@@ -89,7 +138,7 @@ export function Faq() {
 function WarmPanel({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="relative overflow-hidden rounded-[2.5rem] px-6 py-16 sm:px-10 lg:px-16 lg:py-24"
+      className="relative overflow-hidden rounded-[2rem] px-4 py-10 sm:rounded-[2.5rem] sm:px-10 lg:px-16 lg:py-24"
       style={{
         background:
           "linear-gradient(180deg, #fff7ed 0%, #fef3c7 50%, #fce7f3 100%)",

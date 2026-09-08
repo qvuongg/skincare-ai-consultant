@@ -8,6 +8,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
+import { useState } from "react";
 
 import { GLASS, GLASS_LIGHT, GPU, fadeUp, stagger } from "./landing-tokens";
 
@@ -105,8 +106,10 @@ const TRUSTS: Trust[] = [
 ];
 
 export function SocialProof() {
+  const [activeTestimonial, setActiveTestimonial] = useState(0);
+
   return (
-    <section className="px-6 py-20 lg:py-28">
+    <section className="px-4 py-12 sm:px-6 sm:py-16 lg:py-24">
       <motion.div
         variants={stagger}
         initial="hidden"
@@ -114,7 +117,7 @@ export function SocialProof() {
         viewport={{ once: true, margin: "-80px" }}
         className="mx-auto max-w-7xl"
       >
-        <motion.div variants={fadeUp} className="mb-12 text-center">
+        <motion.div variants={fadeUp} className="mb-10 text-center sm:mb-12">
           <span
             className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/65"
             style={GLASS_LIGHT}
@@ -122,7 +125,7 @@ export function SocialProof() {
             <span className="size-1.5 rounded-full bg-pink-500" />
             Tin được, vì có lý do
           </span>
-          <h2 className="mt-4 text-balance text-[30px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px] lg:text-[48px]">
+          <h2 className="mt-4 text-balance text-[28px] font-semibold leading-tight tracking-tight text-foreground sm:text-[40px] lg:text-[48px]">
             Sòng phẳng từ con số tới quyền riêng tư.
           </h2>
         </motion.div>
@@ -130,74 +133,62 @@ export function SocialProof() {
         {/* Stats row */}
         <motion.div
           variants={fadeUp}
-          className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+          className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3"
         >
           {STATS.map((s) => (
             <StatCard key={s.label} stat={s} />
           ))}
         </motion.div>
 
-        {/* Testimonials — horizontal scroll-snap rail */}
-        <motion.div variants={fadeUp} className="relative mt-12">
-          <div
-            className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4"
-            style={{
-              scrollbarWidth: "none",
-              WebkitOverflowScrolling: "touch",
-              // Push first/last cards in from the edge so they don't crash
-              // into the section's px-6 gutter at scroll start/end.
-              scrollPaddingLeft: "1rem",
-              scrollPaddingRight: "1rem",
-            }}
-          >
-            {TESTIMONIALS.map((t) => (
-              <div
+        {/* Testimonials */}
+        <motion.div variants={fadeUp} className="relative mt-10 sm:mt-12">
+          {/* Mobile switcher pills */}
+          <div className="mb-3 flex items-center justify-center gap-2 sm:hidden">
+            {TESTIMONIALS.map((t, idx) => (
+              <button
                 key={t.id}
-                className="shrink-0 snap-start"
-                style={{ width: "min(86vw, 380px)" }}
+                type="button"
+                onClick={() => setActiveTestimonial(idx)}
+                className="rounded-full px-3 py-1 text-[11px] font-semibold transition-all"
+                style={{
+                  background: activeTestimonial === idx ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.6)",
+                  border: activeTestimonial === idx ? "1px solid rgba(0,0,0,0.15)" : "1px solid rgba(255,255,255,0.8)",
+                  color: activeTestimonial === idx ? "#000000" : "rgba(0,0,0,0.5)",
+                }}
               >
-                <TestimonialCard item={t} />
-              </div>
+                {t.meta.split(" · ")[0]}
+              </button>
             ))}
-            {/* Trailing spacer so last card can fully snap into view */}
-            <div className="shrink-0" style={{ width: "1px" }} />
           </div>
-          {/* Edge fade overlays — only on lg+ where the rail is bound by max-w */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 hidden w-12 lg:block"
-            style={{
-              background:
-                "linear-gradient(90deg, rgba(255,255,255,0.95), transparent)",
-            }}
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 hidden w-12 lg:block"
-            style={{
-              background:
-                "linear-gradient(270deg, rgba(255,255,255,0.95), transparent)",
-            }}
-          />
-          <p className="mt-2 text-center text-[11.5px] font-medium text-foreground/50">
-            Vuốt ngang để xem thêm →
-          </p>
+
+          {/* Mobile active single card */}
+          <div className="sm:hidden">
+            <TestimonialCard item={TESTIMONIALS[activeTestimonial]} />
+          </div>
+
+          {/* Desktop/Tablet 3-column row */}
+          <div className="hidden grid-cols-3 gap-4 sm:grid">
+            {TESTIMONIALS.map((t) => (
+              <TestimonialCard key={t.id} item={t} />
+            ))}
+          </div>
+
+          <motion.p
+            variants={fadeUp}
+            className="mt-4 text-center text-[11px] font-medium text-foreground/45"
+          >
+            *Phản hồi từ beta tester, lược trích và biên tập gọn. Mika đang trong
+            giai đoạn mở rộng — cộng đồng và số liệu sẽ minh bạch theo thời gian.
+          </motion.p>
         </motion.div>
-        <motion.p
-          variants={fadeUp}
-          className="mt-4 text-center text-[11px] font-medium text-foreground/45"
-        >
-          *Phản hồi từ beta tester, lược trích và biên tập gọn. Mika đang trong
-          giai đoạn mở rộng — cộng đồng và số liệu sẽ minh bạch theo thời gian.
-        </motion.p>
 
         {/* Trust strip */}
         <motion.div
           variants={fadeUp}
-          className="mt-12 rounded-[1.75rem] p-6 sm:p-8"
+          className="mt-10 rounded-[1.75rem] p-5 sm:mt-12 sm:p-8"
           style={{ ...GLASS, ...GPU }}
         >
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
             {TRUSTS.map((t) => (
               <TrustItem key={t.label} item={t} />
             ))}
@@ -218,7 +209,7 @@ function StatCard({ stat }: { stat: Stat }) {
       <p
         className="text-[34px] font-bold leading-none tracking-tight tabular-nums sm:text-[40px]"
         style={{
-          background:
+          backgroundImage:
             "linear-gradient(135deg, #a855f7 0%, #3b82f6 60%, #22c55e 100%)",
           WebkitBackgroundClip: "text",
           backgroundClip: "text",
